@@ -80,11 +80,6 @@ public final class Swerve extends Subsystem1507 {
     private final double maxSpeedMetersPerSecond;
     private final double maxAngularMetersPerSecond;
 
-    /**
-     * Temporary pose used by driveForwardMeters.
-     * Computed at command start and stored here so it persists across execute() loops.
-     */
-    private Pose2d temporaryTargetPose = new Pose2d();
 
     // ------------------------------------------------------------
     // Simulated Data
@@ -227,10 +222,17 @@ public final class Swerve extends Subsystem1507 {
     /**
      * Drives using field-relative ChassisSpeeds (x = forward, y = left).
      * The kinematics layer converts these to individual module states.
+     *
+     * <p>{@code ChassisSpeeds.discretize()} is applied before kinematics to correct
+     * for the skew that occurs when the robot translates and rotates simultaneously
+     * within a single 20 ms loop iteration. Without it, the robot arcs instead of
+     * driving in a straight line.
      */
     public void drive(ChassisSpeeds speeds) {
         lastCommandedSpeeds = speeds;
-        SwerveModuleState[] states = kinematics.toSwerveModuleStates(speeds);
+        SwerveModuleState[] states = kinematics.toSwerveModuleStates(
+            ChassisSpeeds.discretize(speeds, 0.02)
+        );
         SwerveDriveKinematics.desaturateWheelSpeeds(states, maxSpeedMetersPerSecond);
 
         frontLeft.setDesiredState(states[0]);
@@ -242,10 +244,15 @@ public final class Swerve extends Subsystem1507 {
     /**
      * Drives using robot-relative ChassisSpeeds.
      * Used by movement commands that already handle the field→robot conversion.
+     *
+     * <p>Applies {@code ChassisSpeeds.discretize()} for the same skew correction
+     * as {@link #drive(ChassisSpeeds)}.
      */
     public void driveRobotRelative(ChassisSpeeds speeds) {
         lastCommandedSpeeds = speeds;
-        SwerveModuleState[] states = kinematics.toSwerveModuleStates(speeds);
+        SwerveModuleState[] states = kinematics.toSwerveModuleStates(
+            ChassisSpeeds.discretize(speeds, 0.02)
+        );
         SwerveDriveKinematics.desaturateWheelSpeeds(states, maxSpeedMetersPerSecond);
 
         frontLeft.setDesiredState(states[0]);
@@ -311,19 +318,6 @@ public final class Swerve extends Subsystem1507 {
         return ChassisSpeeds.fromRobotRelativeSpeeds(
             kinematics.toChassisSpeeds(getModuleStates()), getHeading()
         );
-    }
-
-    /**
-     * Stores a one-shot target pose for {@link #driveForwardMeters}.
-     * The pose is computed at command initialization and read back each execute() loop.
-     */
-    public void setTemporaryTargetPose(Pose2d p) {
-        this.temporaryTargetPose = p;
-    }
-
-    /** Returns the target pose stored by the most recent {@link #driveForwardMeters} initialization. */
-    public Pose2d getTemporaryTargetPose() {
-        return temporaryTargetPose;
     }
 
     /** Returns the configured maximum translational speed in m/s. */
@@ -423,12 +417,17 @@ public final class Swerve extends Subsystem1507 {
      * Simple proportional heading controller.
      * Returns an angular velocity (rad/s) to steer from current → desired rotation.
      *
-     * The error is wrapped to [-π, π] so the robot always takes the shortest path.
-     * HEADING_KP (5.5) means 1 radian of error = 5.5 rad/s of correction.
+     * <p>The error is wrapped to [-π, π] so the robot always takes the shortest path.
+     * Output is clamped to the robot's maximum angular rate so large errors (e.g. 180°)
+     * cannot produce physically impossible rotation commands.
+     *
+     * <p>HEADING_KP (5.5) means 1 radian of error produces 5.5 rad/s of correction.
+     * Without clamping, a 180° error would produce ~17.3 rad/s — above the ~13.1 rad/s
+     * physical maximum.
      */
     private double computeOmega(Rotation2d current, Rotation2d desired) {
         double error = MathUtil.angleModulus(desired.minus(current).getRadians());
-        return error * HEADING_KP;
+        return MathUtil.clamp(error * HEADING_KP, -maxAngularMetersPerSecond, maxAngularMetersPerSecond);
     }
 
     /**
@@ -678,7 +677,11 @@ public final class Swerve extends Subsystem1507 {
                 .getAngle();
 
             double omega = computeOmega(currentPose.getRotation(), desiredHeading);
-            drive(new ChassisSpeeds(xSupplier.get(), ySupplier.get(), omega));
+            // xSupplier / ySupplier are field-relative — convert to robot-relative
+            // before passing to drive() so translation is correct at any heading.
+            drive(ChassisSpeeds.fromFieldRelativeSpeeds(
+                xSupplier.get(), ySupplier.get(), omega, currentPose.getRotation()
+            ));
         })
         .finallyDo(interrupted -> stop())
         .withName("Swerve.maintainHeadingToTarget");
@@ -714,14 +717,10 @@ public final class Swerve extends Subsystem1507 {
             double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
             double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
 
-            // Heading correction
-            double headingError = MathUtil.angleModulus(
-                targetPose.getRotation().minus(heading).getRadians()
-            );
-            double omega = headingError * HEADING_KP;
-
             driveRobotRelative(ChassisSpeeds.fromFieldRelativeSpeeds(
-                ux * apfSpeed, uy * apfSpeed, omega, heading
+                ux * apfSpeed, uy * apfSpeed,
+                computeOmega(heading, targetPose.getRotation()),
+                heading
             ));
         })
         .until(() ->
@@ -843,41 +842,39 @@ public final class Swerve extends Subsystem1507 {
      * @param stopAtEnd       true = stop when done
      */
     public Command driveForwardMeters(double distanceMeters, double velocity, boolean stopAtEnd) {
+        // Single-element array so the target pose computed in runOnce is accessible
+        // in the run() and until() closures without subsystem-level mutable state.
+        final Pose2d[] target = { new Pose2d() };
+
         return runOnce(() -> {
-            // Capture starting pose and compute the target at command start
-            Pose2d current  = getPose();
-            Rotation2d hdg  = current.getRotation();
-            setTemporaryTargetPose(new Pose2d(
+            Pose2d current = getPose();
+            Rotation2d hdg = current.getRotation();
+            target[0] = new Pose2d(
                 current.getX() + distanceMeters * hdg.getCos(),
                 current.getY() + distanceMeters * hdg.getSin(),
                 hdg
-            ));
+            );
         })
         .andThen(run(() -> {
             Pose2d current = getPose();
-            Pose2d target  = getTemporaryTargetPose();
             Rotation2d hdg = current.getRotation();
 
-            double dx       = target.getX() - current.getX();
-            double dy       = target.getY() - current.getY();
+            double dx       = target[0].getX() - current.getX();
+            double dy       = target[0].getY() - current.getY();
             double distance = Math.hypot(dx, dy);
 
             double apfSpeed = Math.min(ARRIVE_KP * distance, velocity);
             double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
             double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
 
-            double headingError = MathUtil.angleModulus(
-                target.getRotation().minus(hdg).getRadians()
-            );
-            double omega = headingError * HEADING_KP;
-
             driveRobotRelative(ChassisSpeeds.fromFieldRelativeSpeeds(
-                ux * apfSpeed, uy * apfSpeed, omega, hdg
+                ux * apfSpeed, uy * apfSpeed,
+                computeOmega(hdg, target[0].getRotation()),
+                hdg
             ));
         }))
         .until(() ->
-            getPose().getTranslation()
-                     .getDistance(getTemporaryTargetPose().getTranslation()) < ARRIVE_THRESHOLD
+            getPose().getTranslation().getDistance(target[0].getTranslation()) < ARRIVE_THRESHOLD
         )
         .finallyDo(interrupted -> { if (stopAtEnd) stop(); })
         .withName("Swerve.driveForwardMeters");
