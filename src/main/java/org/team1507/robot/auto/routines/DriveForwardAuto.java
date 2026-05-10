@@ -40,7 +40,7 @@ public final class DriveForwardAuto {
     public static Command build() {
         return new AutoSequence()
             .resetPose(new Pose2d())
-            .driveForwardMeters(5.0, 5.0, true)
+            .driveForwardMeters(5.0, true)
             .stop()
             .build();
     }

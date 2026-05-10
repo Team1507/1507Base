@@ -33,7 +33,7 @@ import org.team1507.robot.RobotBehaviors;
 //   new AutoSequence()
 //       .startTimer()
 //       .resetPose(Nodes.Robot.Start.RIGHT)
-//       .driveToPoint(Nodes.Robot.Score.RIGHT, 1.5, true)
+//       .driveToPoint(Nodes.Robot.Score.RIGHT, true)
 //       .stop()
 //       .build();
 //
@@ -41,8 +41,8 @@ import org.team1507.robot.RobotBehaviors;
 //   Speed modifiers must appear immediately before a motion command.
 //   They apply to that one step only and then reset automatically.
 //
-//   .slow().driveToPoint(Nodes.Robot.Pickup.APPROACH_RIGHT, 5.0, true)
-//   .creep().driveToPoint(Nodes.Robot.Pickup.STATION_RIGHT, 1.0, true)
+//   .slow().driveToPoint(Nodes.Robot.Pickup.APPROACH_RIGHT, true)
+//   .creep().driveToPoint(Nodes.Robot.Pickup.STATION_RIGHT, true)
 //
 // GROUPS (parallel / race / deadline):
 //   Each branch inside a group is its own mini-sequence, written as a lambda:
@@ -56,15 +56,15 @@ import org.team1507.robot.RobotBehaviors;
 //   Examples:
 //     .parallel(
 //         seq -> seq.mySubsystemCommand(),
-//         seq -> seq.driveForwardMeters(1.0, 1.5, true)
+//         seq -> seq.driveForwardMeters(1.0, true)
 //     )
 //     .race(
-//         seq -> seq.driveToPoint(Nodes.Robot.Score.RIGHT, 5.0, true),
+//         seq -> seq.driveToPoint(Nodes.Robot.Score.RIGHT, true),
 //         seq -> seq.waitSeconds(2.0)
 //     )
 //     .deadline(
-//         seq -> seq.driveToPoint(Nodes.Robot.Pickup.APPROACH_RIGHT, 5.0, true),  // deadline
-//         seq -> seq.mySubsystemCommand()                                          // runs alongside
+//         seq -> seq.driveToPoint(Nodes.Robot.Pickup.APPROACH_RIGHT, true),  // deadline
+//         seq -> seq.mySubsystemCommand()                                     // runs alongside
 //     )
 //
 // HOW TO ADD NEW AUTO STEPS:
@@ -108,7 +108,7 @@ public final class AutoSequence {
     // motion command will consume. After that command runs, the override resets.
     //
     // Rule: always place a speed modifier immediately before a motion command.
-    //   CORRECT:   .slow().driveToPoint(target, 5.0, true)
+    //   CORRECT:   .slow().driveToPoint(target, true)
     //   INCORRECT: .slow().myStep().driveToPoint(...)  ← slow is wasted on myStep
     // =========================================================================
 
@@ -179,15 +179,15 @@ public final class AutoSequence {
         return this;
     }
 
-    /** Drives forward a fixed distance along the robot's current heading. */
-    public AutoSequence driveForwardMeters(double distanceMeters, double velocity, boolean stopAtEnd) {
-        steps.add(AutoBuilder.swerve.driveForwardMeters(distanceMeters, velocity, stopAtEnd));
+    /** Drives forward a fixed distance along the robot's current heading. Speed is set by the preceding modifier (.slow(), .withSpeed(), etc.) or defaults to full speed. */
+    public AutoSequence driveForwardMeters(double distanceMeters, boolean stopAtEnd) {
+        steps.add(AutoBuilder.swerve.driveForwardMeters(distanceMeters, consumeSpeed(), stopAtEnd));
         return this;
     }
 
-    /** Drives to a field pose and optionally stops on arrival. */
-    public AutoSequence driveToPoint(Pose2d target, double velocity, boolean stopAtEnd) {
-        steps.add(AutoBuilder.swerve.driveToPoint(target, velocity, stopAtEnd));
+    /** Drives to a field pose and optionally stops on arrival. Speed is set by the preceding modifier (.slow(), .withSpeed(), etc.) or defaults to full speed. */
+    public AutoSequence driveToPoint(Pose2d target, boolean stopAtEnd) {
+        steps.add(AutoBuilder.swerve.driveToPoint(target, consumeSpeed(), stopAtEnd));
         return this;
     }
 
