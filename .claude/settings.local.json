@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:\\\\Users\\\\KellyTopolski\\\\.wpilib\\\\\" 2>/dev/null || echo \"Not found via bash\")",
+      "Read(//c/Users/KellyTopolski/.wpilib\" 2>/dev/**)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\KellyTopolski\\\\AppData\\\\Local\\\\Code\\\\User\\\\extensions\" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match \"wpilib|frc\" })",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Public\\\\wpilib\\\\\" -ErrorAction SilentlyContinue | Select-Object Name, PSIsContainer)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Public\\\\wpilib\\\\\" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name | Sort-Object -Descending)",
+      "PowerShell(head -100)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\KellyTopolski\\\\.vscode\\\\extensions\\\\wpilibsuite.vscode-wpilib-2023.0.0\\\\resources\\\\\" -Recurse -File | Where-Object { $_.DirectoryName -match \"\\(commands|templates\\)\" -and -not \\($_.DirectoryName -match \"examples\"\\) } | Select-Object -ExpandProperty FullName | Sort-Object)"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Subsystem1507",
+  "description": "Team 1507 subsystem extending the Subsystem1507 base class.",
+  "tags": [
+    "subsystem"
+  ],
+  "foldername": "subsystem1507",
+  "replacename": "ReplaceMeSubsystem1507",
+  "commandversion": 2
+}
