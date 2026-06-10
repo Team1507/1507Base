@@ -77,6 +77,7 @@ public final class Motor1507 {
     private double simRotorPosition = 0.0;
     private double simRotorVelocity = 0.0;
     private double simTargetRotations = Double.NaN;
+    private double simTargetVelocity  = Double.NaN;
     private final double simVelocityRps;
     private double simLastTimestamp = -1.0;
 
@@ -166,6 +167,7 @@ public final class Motor1507 {
 
     /** Runs the motor at an open-loop duty cycle ({@code -1.0} to {@code +1.0}). */
     public void runDuty(double dutyCycle) {
+        simTargetVelocity = Double.NaN;
         simRotorVelocity = dutyCycle * simVelocityRps;
         setControl(new DutyCycleOut(dutyCycle));
     }
@@ -180,6 +182,7 @@ public final class Motor1507 {
      * @param amps target stator current; positive = forward, negative = reverse
      */
     public void runTorqueCurrent(double amps) {
+        simTargetVelocity = Double.NaN;
         simRotorVelocity = (amps / 20.0) * simVelocityRps;
         setControl(new TorqueCurrentFOC(amps));
     }
@@ -206,12 +209,13 @@ public final class Motor1507 {
 
     /** Commands the motor to a target velocity in rotations per second using voltage closed-loop. */
     public void setVelocityRPS(double motorRPS) {
-        simRotorVelocity = motorRPS; // store for sim
+        simTargetVelocity = motorRPS;
         setControl(new VelocityVoltage(motorRPS));
     }
 
     /** Commands the motor to a target velocity in rotations per second with an additional feedforward. */
     public void setVelocityRPS(double motorRPS, double ffVolts) {
+        simTargetVelocity = motorRPS;
         setControl(
             new VelocityVoltage(motorRPS)
                 .withFeedForward(ffVolts)
@@ -221,12 +225,31 @@ public final class Motor1507 {
     /** Stops the motor and clears any active control request. */
     public void stop() {
         simRotorVelocity = 0.0;
+        simTargetVelocity  = Double.NaN;
         simTargetRotations = Double.NaN;
         if (motor instanceof TalonFX fx) {
             fx.stopMotor();
         } else if (motor instanceof TalonFXS fxs) {
             fxs.stopMotor();
         }
+    }
+
+    /**
+     * Advances the simulated velocity toward its target at the configured
+     * {@code simVelocityRps} acceleration rate. Call from the owning subsystem's
+     * {@code simulationPeriodic()} every loop. No-op on real hardware.
+     *
+     * @param dt loop period in seconds (typically 0.02)
+     */
+    public void simulationPeriodic(double dt) {
+        if (!RobotBase.isSimulation() || Double.isNaN(simTargetVelocity)) return;
+        if (simVelocityRps <= 0.0) {
+            simRotorVelocity = simTargetVelocity;
+            return;
+        }
+        double maxDelta = simVelocityRps * dt;
+        double error    = simTargetVelocity - simRotorVelocity;
+        simRotorVelocity += Math.copySign(Math.min(Math.abs(error), maxDelta), error);
     }
 
     // ============================================================
