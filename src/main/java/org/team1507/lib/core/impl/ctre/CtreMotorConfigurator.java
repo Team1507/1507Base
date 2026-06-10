@@ -368,11 +368,15 @@ public final class CtreMotorConfigurator {
      * @param cfg   feedback settings from {@link MotorConfig}
      */
     private static void applyExternalFeedback(ExternalFeedbackConfigs fb, MotorConfig.Feedback cfg) {
-        fb.ExternalFeedbackSensorSource = ExternalFeedbackSensorSourceValue.valueOf(cfg.source().name());
-        fb.FeedbackRemoteSensorID = cfg.remoteSensorId();
-        fb.RotorToSensorRatio = cfg.rotorToSensorRatio();
+        // RotorSensor means "use the internal encoder" — ExternalFeedbackSensorSourceValue
+        // has no such constant; leave the default and only apply ratios.
+        if (cfg.source() != FeedbackSensorSourceValue.RotorSensor) {
+            fb.ExternalFeedbackSensorSource = ExternalFeedbackSensorSourceValue.valueOf(cfg.source().name());
+            fb.FeedbackRemoteSensorID = cfg.remoteSensorId();
+            fb.RotorToSensorRatio = cfg.rotorToSensorRatio();
+            fb.AbsoluteSensorOffset = cfg.rotorOffset();
+        }
         fb.SensorToMechanismRatio = cfg.sensorToMechanismRatio();
-        fb.AbsoluteSensorOffset = cfg.rotorOffset(); // best mapping
     }
 
     // ============================================================
