@@ -54,7 +54,7 @@ public final class Motor1507 {
     private final double stallTimeSeconds;
 
     /** Timestamp of the last moment the motor was not stalled. */
-    private double lastNotStalledTime = 0;
+    private double lastNotStalledTime;
 
     /** True when the motor was considered stalled on the previous loop iteration. */
     private boolean lastStalled = false;
@@ -103,6 +103,11 @@ public final class Motor1507 {
         this.stallVelocityThreshold = base.stallVelocityThreshold();
         this.stallTimeSeconds = base.stallTimeSeconds();
         this.simVelocityRps = base.simVelocityRps();
+
+        // Initialize to now so the stall timer starts from a valid baseline.
+        // Leaving this at 0 would make (now - 0) = robot uptime on the first loop,
+        // immediately triggering a false stall on every motor at boot.
+        this.lastNotStalledTime = Timer.getFPGATimestamp();
 
         // --------------------------------------------------------
         // Declare telemetry
@@ -344,6 +349,11 @@ public final class Motor1507 {
      *
      * <p>This method is mechanism‑agnostic and does not interpret the meaning
      * of a stall. Subsystems should provide semantic interpretation.
+     *
+     * <p><b>Signal freshness:</b> {@code getStatorCurrent()} and {@code getRotorVelocity()}
+     * read from cached CAN signals. Call this only after {@code BaseStatusSignal.refreshAll()}
+     * (or the subsystem's {@code periodic()}) has run, otherwise stall detection
+     * may lag by one 20 ms loop.
      *
      * @return true if the motor is stalled
      */

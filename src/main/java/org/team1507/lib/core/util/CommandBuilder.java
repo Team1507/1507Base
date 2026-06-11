@@ -298,6 +298,9 @@ public class CommandBuilder extends Command {
 
     @Override
     public boolean isFinished() {
+        // All three conditions (timeout, stall, finish) are checked independently.
+        // Multiple flags can become true in the same loop — onEnd should handle any
+        // combination with || rather than expecting exactly one true flag.
 
         // Timeout check
         if (timeoutSeconds >= 0) {
