@@ -74,10 +74,11 @@ public final class Motor1507 {
     // Simulated Data
     // ------------------------------------------------------------
 
-    private double simRotorPosition = 0.0;
-    private double simRotorVelocity = 0.0;
+    private double simRotorPosition   = 0.0;
+    private double simRotorVelocity   = 0.0;
     private double simTargetRotations = Double.NaN;
     private double simTargetVelocity  = Double.NaN;
+    private double simStatorCurrent   = 0.0;
     private final double simVelocityRps;
     private double simLastTimestamp = -1.0;
 
@@ -168,7 +169,8 @@ public final class Motor1507 {
     /** Runs the motor at an open-loop duty cycle ({@code -1.0} to {@code +1.0}). */
     public void runDuty(double dutyCycle) {
         simTargetVelocity = Double.NaN;
-        simRotorVelocity = dutyCycle * simVelocityRps;
+        simStatorCurrent  = 0.0;
+        simRotorVelocity  = dutyCycle * simVelocityRps;
         setControl(new DutyCycleOut(dutyCycle));
     }
 
@@ -183,7 +185,8 @@ public final class Motor1507 {
      */
     public void runTorqueCurrent(double amps) {
         simTargetVelocity = Double.NaN;
-        simRotorVelocity = (amps / 20.0) * simVelocityRps;
+        simStatorCurrent  = amps;
+        simRotorVelocity  = (amps / 20.0) * simVelocityRps;
         setControl(new TorqueCurrentFOC(amps));
     }
 
@@ -195,12 +198,14 @@ public final class Motor1507 {
     /** Commands the motor to a target position using voltage closed-loop. */
     public void setPositionVoltage(double rotations) {
         simTargetRotations = rotations;
+        simStatorCurrent   = 0.0;
         setControl(new PositionVoltage(rotations));
     }
 
     /** Commands the motor to a target position using voltage closed-loop with an additional feedforward. */
     public void setPositionVoltage(double rotations, double ffVolts) {
         simTargetRotations = rotations;
+        simStatorCurrent   = 0.0;
         setControl(
             new PositionVoltage(rotations)
                 .withFeedForward(ffVolts)
@@ -210,12 +215,14 @@ public final class Motor1507 {
     /** Commands the motor to a target velocity in rotations per second using voltage closed-loop. */
     public void setVelocityRPS(double motorRPS) {
         simTargetVelocity = motorRPS;
+        simStatorCurrent  = 0.0;
         setControl(new VelocityVoltage(motorRPS));
     }
 
     /** Commands the motor to a target velocity in rotations per second with an additional feedforward. */
     public void setVelocityRPS(double motorRPS, double ffVolts) {
         simTargetVelocity = motorRPS;
+        simStatorCurrent  = 0.0;
         setControl(
             new VelocityVoltage(motorRPS)
                 .withFeedForward(ffVolts)
@@ -224,9 +231,10 @@ public final class Motor1507 {
 
     /** Stops the motor and clears any active control request. */
     public void stop() {
-        simRotorVelocity = 0.0;
+        simRotorVelocity   = 0.0;
         simTargetVelocity  = Double.NaN;
         simTargetRotations = Double.NaN;
+        simStatorCurrent   = 0.0;
         if (motor instanceof TalonFX fx) {
             fx.stopMotor();
         } else if (motor instanceof TalonFXS fxs) {
@@ -290,6 +298,7 @@ public final class Motor1507 {
 
     /** Returns the motor's stator current in amps. */
     public double getStatorCurrent() {
+        if (RobotBase.isSimulation()) return simStatorCurrent;
         return signals.getStatorCurrent();
     }
 
