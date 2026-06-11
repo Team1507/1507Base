@@ -18,11 +18,11 @@ import java.util.function.BooleanSupplier;
 import org.team1507.lib.core.logging.Telemetry;
 
 /**
- * A lightweight, allocation‑free command builder for IO‑focused subsystems.
+ * A lightweight command builder for IO‑focused subsystems.
  *
  * <p>CommandBuilder provides a simple, declarative way to construct commands
  * with predictable runtime behavior. All callbacks are stored up front and
- * executed without creating new objects during scheduler cycles.
+ * executed without allocating new objects in the hot path (execute/isFinished).
  *
  * <p>Each command supports:
  * <ul>
@@ -54,11 +54,31 @@ public class CommandBuilder extends Command {
 
     /**
      * Handler invoked when the command ends, providing full termination context.
+     *
+     * <p><b>Important — {@code interrupted} semantics:</b><br>
+     * {@code interrupted=true} means the command was <em>externally cancelled</em>:
+     * the driver released the button, a failsafe ran, or a competing command took
+     * the subsystem. It does NOT mean "something went wrong."
+     *
+     * <p>When timeout or stall detection fires, the command finishes itself through
+     * {@code isFinished()} and WPILib calls {@code end(false)} — so
+     * {@code interrupted} will be {@code false} even though the command didn't reach
+     * its normal finish condition. Use {@code timedOut} and {@code stalled} to
+     * distinguish those cases.
+     *
+     * <p>Summary:
+     * <pre>
+     *   Normal finish    → interrupted=false, timedOut=false, stalled=false
+     *   Timeout fired    → interrupted=false, timedOut=true,  stalled=false
+     *   Stall fired      → interrupted=false, timedOut=false, stalled=true
+     *   Button released /
+     *   external cancel  → interrupted=true,  timedOut=false, stalled=false
+     * </pre>
      */
     @FunctionalInterface
     public interface EndHandler {
         /**
-         * @param interrupted true if the command was interrupted
+         * @param interrupted true if externally cancelled (button release, failsafe, competing requirement)
          * @param timedOut    true if the command ended due to timeout
          * @param stalled     true if the command ended due to stall detection
          */
@@ -77,7 +97,7 @@ public class CommandBuilder extends Command {
     // Timeout tracking
     // -----------------------------
     private double timeoutSeconds = -1.0;
-    private double startTime = -1.0;
+    private double startTime      =  0.0;
     private boolean timedOut = false;
 
     // -----------------------------
@@ -106,6 +126,7 @@ public class CommandBuilder extends Command {
      * @return this builder
      */
     public CommandBuilder named(String name) {
+        ensureNotRunning();
         setName(name);
         return this;
     }
