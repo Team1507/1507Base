@@ -704,11 +704,19 @@ public final class Swerve extends Subsystem1507 {
      * @param stopAtEnd   true = stop when done; false = leave velocity applied (for chaining)
      */
     public Command driveToPoint(Pose2d targetPose, double velocity, boolean stopAtEnd) {
-        return run(() -> {
+        // stall[0,1] = last XY where movement was detected; stall[2] = timestamp
+        final double[] stall = new double[3];
+
+        return runOnce(() -> {
+            Pose2d p = getPose();
+            stall[0] = p.getX();
+            stall[1] = p.getY();
+            stall[2] = Timer.getFPGATimestamp();
+        })
+        .andThen(run(() -> {
             Pose2d current     = getPose();
             Rotation2d heading = current.getRotation();
 
-            // Unit vector toward target
             double dx       = targetPose.getX() - current.getX();
             double dy       = targetPose.getY() - current.getY();
             double distance = Math.hypot(dx, dy);
@@ -722,11 +730,26 @@ public final class Swerve extends Subsystem1507 {
                 computeOmega(heading, targetPose.getRotation()),
                 heading
             ));
+
+            // Advance stall checkpoint whenever the robot makes meaningful progress
+            double moveDx = Math.abs(current.getX() - stall[0]);
+            double moveDy = Math.abs(current.getY() - stall[1]);
+            if (moveDx > STALL_THRESHOLD || moveDy > STALL_THRESHOLD) {
+                stall[0] = current.getX();
+                stall[1] = current.getY();
+                stall[2] = Timer.getFPGATimestamp();
+            }
+        }))
+        .until(() -> {
+            Pose2d current = getPose();
+            if (current.getTranslation().getDistance(targetPose.getTranslation()) < ARRIVE_THRESHOLD)
+                return true;
+            double dx = Math.abs(current.getX() - stall[0]);
+            double dy = Math.abs(current.getY() - stall[1]);
+            return dx < STALL_THRESHOLD
+                && dy < STALL_THRESHOLD
+                && (Timer.getFPGATimestamp() - stall[2]) > STALL_TIMEOUT;
         })
-        .until(() ->
-            getPose().getTranslation()
-                     .getDistance(targetPose.getTranslation()) < ARRIVE_THRESHOLD
-        )
         .finallyDo(interrupted -> { if (stopAtEnd) stop(); })
         .withName("Swerve.driveToPoint");
     }
@@ -760,14 +783,15 @@ public final class Swerve extends Subsystem1507 {
         PIDController thetaPID = new PIDController(THETA_KP, THETA_KI, THETA_KD);
         thetaPID.enableContinuousInput(-Math.PI, Math.PI);
 
-        // Stall tracker: [lastX, lastY, lastMoveTimestamp]
-        final double[] stall = new double[3];
+        // stall[0,1] = last XY where movement was detected; stall[2] = stall timestamp; stall[3] = command start
+        final double[] stall = new double[4];
 
         return runOnce(() -> {
             Pose2d p = getPose();
             stall[0] = p.getX();
             stall[1] = p.getY();
             stall[2] = Timer.getFPGATimestamp();
+            stall[3] = stall[2]; // wall-clock start for hard deadline
             thetaPID.reset();
         })
         .andThen(run(() -> {
@@ -809,12 +833,15 @@ public final class Swerve extends Subsystem1507 {
             if (current.getTranslation().getDistance(targetPose.getTranslation()) < passRadius)
                 return true;
 
-            // Done: stall timeout expired
+            // Done: stall timeout expired (robot not moving)
             double dx = Math.abs(current.getX() - stall[0]);
             double dy = Math.abs(current.getY() - stall[1]);
-            return dx < STALL_THRESHOLD
-                && dy < STALL_THRESHOLD
-                && (Timer.getFPGATimestamp() - stall[2]) > STALL_TIMEOUT;
+            if (dx < STALL_THRESHOLD && dy < STALL_THRESHOLD
+                    && (Timer.getFPGATimestamp() - stall[2]) > STALL_TIMEOUT)
+                return true;
+
+            // Done: hard wall-clock deadline — catches oscillation that keeps resetting the stall timer
+            return (Timer.getFPGATimestamp() - stall[3]) > MAX_MOVETHROUGH_SECONDS;
         })
         .finallyDo(interrupted -> stop())
         .withName("Swerve.moveThroughPose");

@@ -223,6 +223,9 @@ public class Constants {
             public static final double STALL_THRESHOLD = 0.02; // meters
             public static final double STALL_TIMEOUT   = 1.5;  // seconds
 
+            /** Wall-clock deadline for moveThroughPose: exits if the command runs longer than this. */
+            public static final double MAX_MOVETHROUGH_SECONDS = 5.0;
+
             /** Arrival threshold for driveToPoint / driveForwardMeters (meters). */
             public static final double ARRIVE_THRESHOLD = 0.05; // 5 cm
 

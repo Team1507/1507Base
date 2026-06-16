@@ -1,0 +1,19 @@
+{
+  "holonomicMode": true,
+  "robotMass": 54.0,
+  "robotMOI": 4.0,
+  "driveWheelRadius": 0.049581,
+  "driveGearing": 6.122448979591837,
+  "maxDriveSpeed": 5.04,
+  "wheelCOF": 1.0,
+  "driveMotorType": "krakenX60FOC",
+  "driveCurrentLimit": 60.0,
+  "flModuleX":  0.272733,
+  "flModuleY":  0.272733,
+  "frModuleX":  0.272733,
+  "frModuleY": -0.272733,
+  "blModuleX": -0.272733,
+  "blModuleY":  0.272733,
+  "brModuleX": -0.272733,
+  "brModuleY": -0.272733
+}
