@@ -54,6 +54,7 @@ public final class SwerveModule1507 {
     private double simSteerAngleRotations = 0.0;
     private double simDriveVelocityRps = 0.0;
     private double simDrivePositionRotations = 0.0;
+    private CANcoderSimState encoderSim;
 
     private final StatusSignal<Angle> absPosition;
     private final StatusSignal<AngularVelocity> azimuthVelocity;
@@ -79,6 +80,7 @@ public final class SwerveModule1507 {
 
         this.absPosition = encoder.getAbsolutePosition();
         this.azimuthVelocity = encoder.getVelocity();
+        this.encoderSim = encoder.getSimState();
 
         BaseStatusSignal.setUpdateFrequencyForAll(
             100.0,
@@ -188,14 +190,8 @@ public final class SwerveModule1507 {
      * and integrates drive position.
      */
     public void simulationUpdate(double dtSeconds) {
-        // Update CANcoder sim state so absPosition signal reads correctly
-        CANcoderSimState encoderSim = encoder.getSimState();
-        encoderSim.setRawPosition(
-            simSteerAngleRotations + encoderOffset.getRotations()
-        );
+        encoderSim.setRawPosition(simSteerAngleRotations + encoderOffset.getRotations());
         encoderSim.setVelocity(0.0);
-
-        // Integrate drive position
         simDrivePositionRotations += simDriveVelocityRps * dtSeconds;
     }
 

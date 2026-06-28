@@ -9,7 +9,10 @@
 package org.team1507.lib.core.logging;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.networktables.BooleanPublisher;
+import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.networktables.StructPublisher;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
@@ -39,7 +42,10 @@ import java.util.Map;
  */
 public final class Telemetry {
 
-    private static final Map<String, StructPublisher<Pose2d>> posePublishers = new HashMap<>();
+    private static final Map<String, BooleanPublisher>                       boolPublishers        = new HashMap<>();
+    private static final Map<String, DoublePublisher>                        doublePublishers      = new HashMap<>();
+    private static final Map<String, StringPublisher>                        stringPublishers      = new HashMap<>();
+    private static final Map<String, StructPublisher<Pose2d>>                posePublishers        = new HashMap<>();
 
     /**
      * Logging period (in seconds) associated with each telemetry rate.
@@ -106,9 +112,12 @@ public final class Telemetry {
      * @param value boolean value to publish
      */
     public static void set(String key, boolean value) {
-        NetworkTableInstance.getDefault()
-            .getEntry(key)
-            .setBoolean(value);
+        BooleanPublisher pub = boolPublishers.get(key);
+        if (pub == null) {
+            pub = NetworkTableInstance.getDefault().getBooleanTopic(key).publish();
+            boolPublishers.put(key, pub);
+        }
+        pub.set(value);
     }
 
     /**
@@ -121,9 +130,12 @@ public final class Telemetry {
      * @param value string value to publish
      */
     public static void set(String key, String value) {
-        NetworkTableInstance.getDefault()
-            .getEntry(key)
-            .setString(value);
+        StringPublisher pub = stringPublishers.get(key);
+        if (pub == null) {
+            pub = NetworkTableInstance.getDefault().getStringTopic(key).publish();
+            stringPublishers.put(key, pub);
+        }
+        pub.set(value);
     }
 
     /**
@@ -136,9 +148,12 @@ public final class Telemetry {
      * @param value numeric value to publish
      */
     public static void set(String key, double value) {
-        NetworkTableInstance.getDefault()
-            .getEntry(key)
-            .setDouble(value);
+        DoublePublisher pub = doublePublishers.get(key);
+        if (pub == null) {
+            pub = NetworkTableInstance.getDefault().getDoubleTopic(key).publish();
+            doublePublishers.put(key, pub);
+        }
+        pub.set(value);
     }
 
     /**
