@@ -41,6 +41,7 @@ import com.ctre.phoenix6.swerve.SwerveModuleConstants.SteerMotorArrangement;
 
 import org.team1507.lib.core.impl.ctre.CtreMotorConfigurator;
 import org.team1507.lib.core.impl.ctre.Motor1507;
+import org.team1507.lib.core.swerve.SwerveAccelLimiter;
 import org.team1507.lib.core.swerve.SwerveModule1507;
 import org.team1507.lib.core.swerve.SwerveModule1507.MathConfig;
 import org.team1507.lib.core.util.MotorConfig;
@@ -115,6 +116,7 @@ public final class SwerveConfig {
     //   SWERVE-7  Tune gains with SysId                      (driveGains, steerGains)
     //   SWERVE-8  Current limits and slip current            (kSlipCurrent, *_SUPPLY_LIMIT)
     //   SWERVE-9  Driving/auto tuning knobs                  (Constants.kSwerve.kTuning)
+    //   SWERVE-10 Acceleration limits                        (*_ACCEL_* below)
 
     /** Pasted Tuner X constants. Private fields work because SwerveConfig is the outer class. */
     @SuppressWarnings("unused") // generator fields we don't read yet (sim inertia, pigeon configs)
@@ -292,6 +294,23 @@ public final class SwerveConfig {
     private static final Current DRIVE_SUPPLY_LIMIT = Amps.of(28.0);
     private static final Current STEER_SUPPLY_LIMIT = Amps.of(40.0);
 
+    /**
+     * Acceleration limits, applied to every drive command (see
+     * SwerveAccelLimiter). Hard acceleration is when the drive motors pull the
+     * most current, so these also protect the battery. Starting values are Team
+     * 340's 2026 MK5n robot:
+     * <ul>
+     *   <li>SLIP: 15 m/s² of velocity change before the wheels slip on carpet</li>
+     *   <li>TORQUE: 10 m/s² of acceleration from a standstill (less at speed)</li>
+     *   <li>ANGULAR: 1830 °/s² of turning acceleration (340's 32 rad/s²)</li>
+     * </ul>
+     * Lower values are gentler on the battery and carpet but slower to respond.
+     */
+    // TODO(SEASON SWERVE-10): tune on the robot. See the Season Setup Checklist.
+    private static final double SLIP_ACCEL_MPS2 = 15.0;
+    private static final double TORQUE_ACCEL_MPS2 = 10.0;
+    private static final double ANGULAR_ACCEL_DEG_PER_S2 = 1830.0;
+
     /** Kraken X60 free speed with FOC (rotations/sec): 5800 RPM. Used to sanity-check kSpeedAt12Volts. */
     // TODO(SEASON SWERVE-1): update if the drive motor changes (non-FOC X60 = 6000 RPM).
     private static final double KRAKEN_X60_FOC_FREE_RPS = 5800.0 / 60.0;
@@ -309,6 +328,10 @@ public final class SwerveConfig {
 
     /** Maximum chassis angular rate (rad/s) = v_max / drive-base radius. */
     public static final double MAX_ANGULAR_RATE = MAX_SPEED / DRIVE_BASE_RADIUS;
+
+    /** The acceleration limits above, in the units SwerveAccelLimiter uses (turning in rad/s²). */
+    public static final SwerveAccelLimiter.Limits ACCEL_LIMITS = new SwerveAccelLimiter.Limits(
+        SLIP_ACCEL_MPS2, TORQUE_ACCEL_MPS2, Math.toRadians(ANGULAR_ACCEL_DEG_PER_S2), MAX_SPEED);
 
     // ============================================================
     // Motor configs — built ONCE from the paste zone, then copied per module
@@ -545,7 +568,19 @@ public final class SwerveConfig {
             problems.add("DRIVE_SUPPLY_LIMIT is above kSlipCurrent (the drive stator limit).");
         }
 
+        // --- Acceleration limits: zero or negative would stop the robot from moving.
+        checkPositive(problems, "SLIP_ACCEL_MPS2", SLIP_ACCEL_MPS2);
+        checkPositive(problems, "TORQUE_ACCEL_MPS2", TORQUE_ACCEL_MPS2);
+        checkPositive(problems, "ANGULAR_ACCEL_DEG_PER_S2", ANGULAR_ACCEL_DEG_PER_S2);
+
         return problems;
+    }
+
+    /** A helper, like checkGearRatio, so the IDE doesn't flag the check as dead code. */
+    private static void checkPositive(List<String> problems, String name, double value) {
+        if (value <= 0.0) {
+            problems.add(name + " must be positive (it is " + value + "); the robot could not move.");
+        }
     }
 
     /**

@@ -39,6 +39,7 @@ import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.Pigeon2;
 
 import org.team1507.lib.core.framework.Subsystem1507;
+import org.team1507.lib.core.swerve.SwerveAccelLimiter;
 import org.team1507.lib.core.swerve.SwerveModule1507;
 import org.team1507.lib.core.util.Alliance;
 import org.team1507.robot.Constants;
@@ -90,6 +91,14 @@ public final class Swerve extends Subsystem1507 {
     private final SwerveModuleVelocity[] moduleStates = new SwerveModuleVelocity[4];
     private final SwerveModulePosition[] modulePositions = new SwerveModulePosition[4];
 
+    // ------------------------------------------------------------
+    // Acceleration limits (every drive() call goes through them)
+    // ------------------------------------------------------------
+
+    private final SwerveAccelLimiter accelLimiter =
+        new SwerveAccelLimiter(SwerveConfig.ACCEL_LIMITS, 0.02);
+    /** Created once, so drive() doesn't make a new lambda every loop. */
+    private final Supplier<ChassisVelocities> measuredFieldSpeeds = this::getFieldRelativeSpeeds;
 
     // ------------------------------------------------------------
     // Simulated Data
@@ -225,12 +234,25 @@ public final class Swerve extends Subsystem1507 {
      * {@code velocities.toRobotRelative(getDriverRelativeHeading())} (driver).
      * Every command in this file does that before calling drive().
      *
+     * <p>Speeds are first passed through the acceleration limits in SwerveConfig
+     * (slip, torque, turning), so a sudden full-stick command ramps up over a
+     * few loops instead of spinning the wheels and spiking the current.
+     * {@code Swerve/AccelLimited} in the log shows when that happened.
+     * {@link #stop()} and {@link #brake()} are not limited.
+     *
      * <p>{@code ChassisVelocities.discretize()} is applied before kinematics to correct
      * for the skew that occurs when the robot translates and rotates simultaneously
      * within a single 20 ms loop iteration. Without it, the robot arcs instead of
      * driving in a straight line.
      */
     public void drive(ChassisVelocities speeds) {
+        // Acceleration limits work on field-relative velocity (see SwerveAccelLimiter).
+        Rotation2d heading = getPose().getRotation();
+        ChassisVelocities limited = accelLimiter.limit(
+            speeds.toFieldRelative(heading), measuredFieldSpeeds, Timer.getTimestamp());
+        speeds = limited.toRobotRelative(heading);
+        log("AccelLimited", accelLimiter.wasLimited());
+
         lastCommandedSpeeds = speeds;
         SwerveModuleVelocity[] states = kinematics.toSwerveModuleVelocities(
             speeds.discretize(0.02)
@@ -245,8 +267,9 @@ public final class Swerve extends Subsystem1507 {
         backRight.setDesiredState(states[3]);
     }
 
-    /** Stops all modules immediately. */
+    /** Stops all modules immediately (not acceleration-limited). */
     public void stop() {
+        accelLimiter.reset();
         lastCommandedSpeeds = new ChassisVelocities();
         frontLeft.stop();
         frontRight.stop();
@@ -266,6 +289,7 @@ public final class Swerve extends Subsystem1507 {
      * <p>Called every loop by {@link #brakeCommand()} to hold the configuration.
      */
     public void brake() {
+        accelLimiter.reset();
         frontLeft.brakeToAngle(Rotation2d.fromDegrees( 45));
         frontRight.brakeToAngle(Rotation2d.fromDegrees(-45));
         backLeft.brakeToAngle(Rotation2d.fromDegrees(-45));

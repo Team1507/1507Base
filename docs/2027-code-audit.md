@@ -42,6 +42,7 @@ This audit checks the code against four goals:
 | **Step 3: `Subsystem1507`** (fixed H-1) | `motor(...)` creates and registers a motor; every loop the base class refreshes all its motors in one CAN call, runs `periodic()`, logs `<Subsystem>/TotalSupplyCurrent`, and steps the sim. Default CAN bus set once in `Robot.java`. `warnIf`/`faultIf` alerts clear themselves. Swerve's 8 motors count toward its current. `Subsystem1507Test` |
 | **Motion Magic** (fixed M-1) | `withMotionMagicDegrees` / `withMotionMagicMeters` / `withMotionMagicRotations`; the build fails if Motion Magic has no speed limits |
 | **Logging work** (fixed H-2, M-4) | Moved onto WPILib 2027 `Telemetry`. Every motor logs all 15 signals + target + stall every loop (motor supply voltage raised to 50 Hz, matching the currents); `RobotHealthLog` logs battery, brownout, loop period/time, CAN utilization per port, PDH channels, total motor current; `CommandLog` logs every command start/end (`Commands/Events`) and each subsystem's current command; each subsystem logs its `PeriodicMs`. Our `Telemetry`, `InputField` and `TelemetryRate` deleted. Also: the Pigeon's startup read no longer prints a CAN error. Telemetry and Logging wiki page rewritten; LOGGING-1..3 added to the checklist |
+| **Phase 2 swerve** | Acceleration limiting (slip, torque, angular) in `Swerve.drive()`, 340's approach and starting values, field-relative; `SwerveAccelLimiterTest`; checklist SWERVE-10. The odometry thread, current budget and cosine scaling were **dropped**: 340 runs none of them (their odometry thread is off, 50 Hz like ours), per-motor supply limits already cap current, and QuestNav will be the main position source |
 | **Comments (this audit)** | 13 stale or wrong comments fixed; see [Goal 4](#goal-4-comment-accuracy) |
 
 ---
@@ -94,7 +95,6 @@ A subsystem used in autos must be added to `AutoBuilder` (field + `init()` param
 - **Season Setup Checklist** covers Swerve and Logging. Field/auto, vision and project setup sections are still to be written.
 - **Sub-loop current spikes:** motor signals are logged once per loop (50 Hz). CTRE's `.hoot` log would catch shorter spikes; confirm it runs on SystemCore before relying on it.
 - `RobotMap.OPERATOR_CONTROLLER` is defined but unused (fine for a skeleton; the operator gamepad isn't created yet).
-- **Cosine scaling** for swerve modules (slow the wheel while it's still turning) is planned for Phase 2.
 - `roller()` (torque control) on a **TalonFXS/Minion** is untested. TalonFX is confirmed.
 
 ---
@@ -205,7 +205,7 @@ Comments added during this session (Motor1507, MotorConfig, SwerveConfig, Swerve
 1. ~~**Step 3: `Subsystem1507`**~~ ✅ Done (fixed H-1, and M-1 rode along).
 2. ~~**Logging work**~~ ✅ Done (fixed H-2 and M-4; M-2 now measurable).
 3. **Robot time** (when the MK5n modules are built) — Season Setup Checklist SWERVE-3 to SWERVE-8, and LOGGING-1 to LOGGING-3.
-4. **Phase 2 swerve library** (odometry thread, current budget, acceleration limiting, cosine scaling). Phase 3 simulation (M-3) moved to 1507Labs.
+4. ~~**Phase 2 swerve library**~~ ✅ Done: acceleration limiting only; the other three items were dropped (see Completed). Phase 3 simulation (M-3) moved to 1507Labs.
 5. **Revisit autos** (M-5) and **restore QuestNav** once its 2027 build ships.
 
 ---
@@ -224,5 +224,5 @@ Comments added during this session (Motor1507, MotorConfig, SwerveConfig, Swerve
 | Drive ratio | 6.12 (2026 ratio) | 6.03 | Confirm at assembly (SWERVE-4) |
 | Coupling ratio | 3.57 (MK4i value) | — | Take from Tuner X (SWERVE-4) |
 | Encoder offset | Written to the CANcoder | Written to the CANcoder | Matches |
-| Acceleration limiting | None | Slip + torque limits | Phase 2 |
-| Odometry | 50 Hz in `periodic()` | 50 Hz odometry thread | Phase 2 decision |
+| Acceleration limiting | Slip 15 / torque 10 m/s², angular 32 rad/s² | Slip 15 / torque 10 m/s², angular 32 rad/s² | Matches; tune on the robot (SWERVE-10) |
+| Odometry | 50 Hz in `periodic()` | 50 Hz (their odometry thread is configured off) | Matches |
