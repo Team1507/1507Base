@@ -36,7 +36,7 @@ The serious problems were **not** caused by the migration. They are 2026 code th
 
 None of these show up in simulation. Swerve simulation skips the CTRE signal and control path entirely (M1), which is why they went unnoticed.
 
-> **Status (2026-09-24):** C1, C2, C3, H1 and H3 are fixed in code as part of the MK5n update. Swerve hardware settings now live in a Tuner X paste zone at the top of `subsystems/Swerve.java`. That update also fixed an odometry jump: the coupling math used the CANcoder's wrapping absolute position. What's still open: verify on the robot (wheel alignment, drive direction), run SysId, and confirm the MK5n drive ratio, coupling ratio and wheel size at assembly (search `TODO(MK5n`).
+> **Status (2026-09-24):** C1, C2, C3, H1 and H3 are fixed in code as part of the MK5n update. Swerve hardware settings now live in a Tuner X paste zone at the top of `subsystems/Swerve.java`. That update also fixed an odometry jump: the coupling math used the CANcoder's wrapping absolute position. What's still open: verify on the robot (wheel alignment, drive direction), run SysId, and confirm the MK5n drive ratio, coupling ratio and wheel size at assembly (search `TODO(SEASON SWERVE`, and see the Season Setup Checklist on the wiki).
 
 ---
 

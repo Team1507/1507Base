@@ -28,6 +28,7 @@ public class Constants {
     // and pass that bus to the devices wired to it.
     // ============================================================
 
+    // TODO(SEASON SWERVE-2): confirm which SystemCore port the drivetrain is wired to.
     public static final CANBus CAN_BUS = new CANBus(CANPort.CAN_S0);
 
     // ============================================================
@@ -58,6 +59,8 @@ public class Constants {
 
     public static final class kSwerve {
 
+        // TODO(SEASON SWERVE-9): retune these once the robot drives (heading control,
+        // auto arrival thresholds, pose-estimator trust, wheel-wear scale).
         public static final class kTuning {
 
             /**

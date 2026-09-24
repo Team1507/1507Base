@@ -97,15 +97,32 @@ public final class Swerve extends Subsystem1507 {
     // ║  in the "1507 ADDITIONS" block after this one. Pasting never     ║
     // ║  touches them.                                                   ║
     // ╚══════════════════════════════════════════════════════════════════╝
+    //
+    // SEASON CHECKLIST: every new robot must work through the Swerve section of
+    // the "Season Setup Checklist" wiki page. Each item has a matching
+    // TODO(SEASON SWERVE-n) tag in the code (search for "TODO(SEASON").
+    // Pasting from Tuner X replaces the TODO lines inside the paste zone; that
+    // is expected, because the paste is how those items get done.
+    //
+    //   SWERVE-1  Hardware: module type, drive/steer motors, Pro licenses
+    //   SWERVE-2  CAN bus port the drivetrain is wired to    (Constants.CAN_BUS)
+    //   SWERVE-3  Tuner X generator: IDs, offsets, inversions, module positions
+    //   SWERVE-4  Drive gear ratio and coupling ratio
+    //   SWERVE-5  Wheel radius and kSpeedAt12Volts
+    //   SWERVE-6  Verify on blocks: steering, drive direction, gyro, odometry
+    //   SWERVE-7  Tune gains with SysId                      (driveGains, steerGains)
+    //   SWERVE-8  Current limits and slip current            (kSlipCurrent, *_SUPPLY_LIMIT)
+    //   SWERVE-9  Driving/auto tuning knobs                  (Constants.kSwerve.kTuning)
 
     /** Pasted Tuner X constants. Private fields work because Swerve is the outer class. */
     @SuppressWarnings("unused") // generator fields we don't read yet (sim inertia, pigeon configs)
     private static final class TunerConstants {
 
+        // TODO(SEASON SWERVE-1): confirm the hardware. Current values are for the
         // 2027 robot: SDS MK5n modules, Kraken X60 drive, Kraken X44 steer, Phoenix Pro.
         //
-        // Starting gains are from Team 340's 2026 robot, which runs the same MK5n +
-        // Kraken X60 (FOC) combination. Re-tune both with SysId on our robot.
+        // TODO(SEASON SWERVE-7): starting gains are from Team 340's 2026 robot, which
+        // runs the same MK5n + Kraken X60 (FOC) combination. Tune with SysId.
 
         // Both sets of gains need to be tuned to your individual robot.
 
@@ -135,11 +152,13 @@ public final class Swerve extends Subsystem1507 {
 
         // The remote sensor feedback type to use for the steer motors;
         // When not Pro-licensed, Fused*/Sync* automatically fall back to Remote*
+        // TODO(SEASON SWERVE-1): FusedCANcoder needs Phoenix Pro on the steer motors.
         private static final SteerFeedbackType kSteerFeedbackType = SteerFeedbackType.FusedCANcoder;
 
         // The stator current at which the wheels start to slip;
         // This needs to be tuned to your individual robot
-        // 1507: 80 A matches 340's MK5n drive stator limit. Measure real slip current.
+        // TODO(SEASON SWERVE-8): 80 A matches 340's MK5n drive stator limit. Measure
+        // our real slip current on carpet.
         private static final Current kSlipCurrent = Amps.of(80.0);
 
         // Initial configs for the drive and steer motors and the azimuth encoder; these cannot be null.
@@ -159,25 +178,30 @@ public final class Swerve extends Subsystem1507 {
 
         // Theoretical free speed (m/s) at 12 V applied output;
         // This needs to be tuned to your individual robot
-        // 1507: Kraken X60 FOC free speed 5800 RPM / 6.12 ratio on a 4" wheel = 5.04 m/s.
-        // Swerve.configProblems() checks this against the ratio and wheel size.
+        // TODO(SEASON SWERVE-5): Kraken X60 FOC free speed 5800 RPM / 6.12 ratio on a
+        // 4" wheel = 5.04 m/s. SwerveConfigTest fails if this doesn't match the
+        // gear ratio and wheel radius.
         public static final LinearVelocity kSpeedAt12Volts = MetersPerSecond.of(5.04);
 
         // Every 1 rotation of the azimuth results in kCoupleRatio drive motor turns;
         // This may need to be tuned to your individual robot
-        // TODO(MK5n): 3.57 is the MK4i value. Take the MK5n value from Tuner X's generator.
+        // TODO(SEASON SWERVE-4): 3.57 is the MK4i value. Take the MK5n value from
+        // Tuner X's generator.
         private static final double kCoupleRatio = 3.5714285714285716;
 
-        // TODO(MK5n assembly): the kit includes three drive ratios. 6.12 is our 2026
-        // ratio. Confirm which one is installed and update this to match.
+        // TODO(SEASON SWERVE-4): the MK5n kit includes three drive ratios. 6.12 is our
+        // 2026 ratio. Confirm which one is installed and update this to match.
         private static final double kDriveGearRatio = 6.122448979591837;
         // MK5n steering ratio: 287:11 (from SDS).
         private static final double kSteerGearRatio = 287.0 / 11.0;
-        // MK5n with 4" x 2.25" molded spike grip wheels. 2.0" is the NEW radius;
-        // tread wears down, so re-measure (or run wheel-radius calibration) during
-        // the season and adjust DRIVE_METERS_SCALE in Constants.kSwerve.kTuning.
+        // TODO(SEASON SWERVE-5): MK5n with 4" x 2.25" molded spike grip wheels. 2.0"
+        // is the NEW radius; tread wears down, so re-measure (or run wheel-radius
+        // calibration) during the season and adjust DRIVE_METERS_SCALE in
+        // Constants.kSwerve.kTuning.
         private static final Distance kWheelRadius = Inches.of(2.0);
 
+        // TODO(SEASON SWERVE-6): verify drive direction on blocks (all wheels spin so
+        // the robot moves forward when the stick is pushed forward).
         private static final boolean kInvertLeftSide = false;
         private static final boolean kInvertRightSide = true;
 
@@ -190,9 +214,9 @@ public final class Swerve extends Subsystem1507 {
         private static final Voltage kSteerFrictionVoltage = Volts.of(0.2);
         private static final Voltage kDriveFrictionVoltage = Volts.of(0.2);
 
-        // TODO(MK5n assembly): every value from here down (CAN IDs, encoder offsets,
-        // inversions, module positions) is from the 2026 robot. Re-run Tuner X's
-        // swerve generator on the 2027 robot and paste its values here.
+        // TODO(SEASON SWERVE-3): every value from here down (CAN IDs, encoder offsets,
+        // inversions, module positions) is from the 2026 robot. Run Tuner X's swerve
+        // generator on the new robot and paste its values here.
 
         // Front Left
         private static final int kFrontLeftDriveMotorId = 7;
@@ -252,6 +276,7 @@ public final class Swerve extends Subsystem1507 {
      * and more torque per amp. Tuner X's generated code gets this from CTRE's
      * swerve requests; our motors get it from here.
      */
+    // TODO(SEASON SWERVE-1): set false if the swerve motors are not Pro-licensed.
     private static final boolean USE_FOC = true;
 
     /**
@@ -261,10 +286,12 @@ public final class Swerve extends Subsystem1507 {
      * total for driving). Raise them only with match logs showing voltage
      * stays healthy.
      */
+    // TODO(SEASON SWERVE-8): review against match logs (battery voltage, brownouts).
     private static final Current DRIVE_SUPPLY_LIMIT = Amps.of(28.0);
     private static final Current STEER_SUPPLY_LIMIT = Amps.of(40.0);
 
     /** Kraken X60 free speed with FOC (rotations/sec): 5800 RPM. Used to sanity-check kSpeedAt12Volts. */
+    // TODO(SEASON SWERVE-1): update if the drive motor changes (non-FOC X60 = 6000 RPM).
     private static final double KRAKEN_X60_FOC_FREE_RPS = 5800.0 / 60.0;
 
     // ─────────────────────────────────────────────────────────────────
