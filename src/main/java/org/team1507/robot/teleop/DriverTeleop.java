@@ -14,7 +14,7 @@ import org.wpilib.opmode.PeriodicOpMode;
 import org.wpilib.opmode.Teleop;
 
 import org.team1507.robot.Robot;
-import org.team1507.robot.Constants.kSwerve;
+import org.team1507.robot.subsystems.Swerve;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DriverTeleop
@@ -49,8 +49,8 @@ public final class DriverTeleop extends PeriodicOpMode {
 
                 // Sticks are field-relative; convert to robot-relative for the kinematics.
                 return new ChassisVelocities(
-                    x   * kSwerve.MAX_SPEED,
-                    y   * kSwerve.MAX_SPEED,
+                    x   * Swerve.MAX_SPEED,
+                    y   * Swerve.MAX_SPEED,
                     rot * Math.PI
                 ).toRobotRelative(robot.swerve.getHeading());
             })

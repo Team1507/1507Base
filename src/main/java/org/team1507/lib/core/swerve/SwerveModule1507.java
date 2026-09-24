@@ -44,7 +44,6 @@ public final class SwerveModule1507 {
     private final Motor1507 steer;
     private final CANcoder encoder;
 
-    private final Rotation2d encoderOffset;
     private final MathConfig math;
     private final double driveMetersScale;
 
@@ -55,7 +54,16 @@ public final class SwerveModule1507 {
     private double simDriveVelocityRps = 0.0;
     private double simDrivePositionRotations = 0.0;
 
-    private final StatusSignal<Angle> absPosition;
+    /**
+     * CANcoder position in module rotations. The magnet offset is stored on the
+     * CANcoder (see Swerve.createModule), so 0 = wheel pointing forward.
+     *
+     * <p>This is the CONTINUOUS position (it counts past 1.0 rotation), not
+     * getAbsolutePosition(), which wraps from +0.5 to -0.5. The coupling
+     * correction below multiplies this value, so a wrap would add a fake jump
+     * of ~18 cm to odometry every time a wheel crossed the wrap point.
+     */
+    private final StatusSignal<Angle> azimuthPosition;
     private final StatusSignal<AngularVelocity> azimuthVelocity;
 
     private final BaseStatusSignal[] allSignals;
@@ -65,7 +73,6 @@ public final class SwerveModule1507 {
         Motor1507 drive,
         Motor1507 steer,
         CANcoder encoder,
-        Rotation2d encoderOffset,
         MathConfig math,
         double driveMetersScale
     ) {
@@ -73,16 +80,15 @@ public final class SwerveModule1507 {
         this.drive = drive;
         this.steer = steer;
         this.encoder = encoder;
-        this.encoderOffset = encoderOffset;
         this.math = math;
         this.driveMetersScale = driveMetersScale;
 
-        this.absPosition = encoder.getAbsolutePosition();
+        this.azimuthPosition = encoder.getPosition();
         this.azimuthVelocity = encoder.getVelocity();
 
         BaseStatusSignal.setUpdateFrequencyForAll(
             100.0,
-            absPosition,
+            azimuthPosition,
             azimuthVelocity
         );
 
@@ -91,7 +97,7 @@ public final class SwerveModule1507 {
         this.allSignals = new BaseStatusSignal[14];
         System.arraycopy(driveSignals, 0, allSignals, 0, 6);
         System.arraycopy(steerSignals, 0, allSignals, 6, 6);
-        allSignals[12] = absPosition;
+        allSignals[12] = azimuthPosition;
         allSignals[13] = azimuthVelocity;
 
         Telemetry.set(key("Drive/MetersScale"), driveMetersScale);
@@ -190,11 +196,11 @@ public final class SwerveModule1507 {
      * and integrates drive position.
      */
     public void simulationUpdate(double dtSeconds) {
-        // Update CANcoder sim state so absPosition signal reads correctly
+        // Keep the CANcoder sim state in step with the simulated steer angle.
+        // (getAngle() reads the sim value directly; this keeps the device's
+        // own signals plausible for anything that reads them.)
         CANcoderSimState encoderSim = encoder.getSimState();
-        encoderSim.setRawPosition(
-            simSteerAngleRotations + encoderOffset.getRotations()
-        );
+        encoderSim.setRawPosition(simSteerAngleRotations);
         encoderSim.setVelocity(0.0);
 
         // Integrate drive position
@@ -205,20 +211,17 @@ public final class SwerveModule1507 {
     // Observation
     // ============================================================
 
-    /** Returns the current steer angle, corrected for the encoder offset. */
+    /** Returns the current steer angle (0 = wheel forward; offset is applied on the CANcoder). */
     public Rotation2d getAngle() {
-        if (RobotBase.isSimulation()) {
-            return Rotation2d.fromRotations(simSteerAngleRotations);
-        }
-        double rotations = absPosition.getValue().in(Rotations);
-        return Rotation2d.fromRotations(rotations).minus(encoderOffset);
+        return Rotation2d.fromRotations(azimuthRotations());
     }
 
-    private double azimuthRotationsRaw() {
+    /** Continuous azimuth position in module rotations (does not wrap). */
+    private double azimuthRotations() {
         if (RobotBase.isSimulation()) {
-            return simSteerAngleRotations + encoderOffset.getRotations();
+            return simSteerAngleRotations;
         }
-        return absPosition.getValue().in(Rotations);
+        return azimuthPosition.getValue().in(Rotations);
     }
 
     private double azimuthRpsRaw() {
@@ -288,7 +291,7 @@ public final class SwerveModule1507 {
 
     private double correctedDriveMotorRotations() {
         return drive.getRotorPosition()
-            - (azimuthRotationsRaw() * math.couplingRatio());
+            - (azimuthRotations() * math.couplingRatio());
     }
 
     private double correctedDriveMotorRps() {

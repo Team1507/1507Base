@@ -41,6 +41,9 @@ public final class Motor1507 {
     private final CtreMotorSignals signals;
     private final String name;
 
+    /** True when control requests use FOC commutation (Phoenix Pro). From slot 0 config. */
+    private final boolean foc;
+
     // ------------------------------------------------------------
     // Stall detection fields
     // ------------------------------------------------------------
@@ -106,6 +109,7 @@ public final class Motor1507 {
         this.stallVelocityThreshold = base.stallVelocityThreshold();
         this.stallTimeSeconds = base.stallTimeSeconds();
         this.simVelocityRps = base.simVelocityRps();
+        this.foc = base.enableFOC();
 
         // Initialize to now so the stall timer starts from a valid baseline.
         // Leaving this at 0 would make (now - 0) = robot uptime on the first loop,
@@ -179,7 +183,7 @@ public final class Motor1507 {
         simTargetVelocity = Double.NaN;
         simStatorCurrent  = 0.0;
         simRotorVelocity  = dutyCycle * simVelocityRps;
-        setControl(new DutyCycleOut(dutyCycle));
+        setControl(new DutyCycleOut(dutyCycle).withEnableFOC(foc));
     }
 
     /**
@@ -200,14 +204,14 @@ public final class Motor1507 {
 
     /** Commands the motor to a target position using duty-cycle closed-loop. */
     public void setPositionDuty(double rotations) {
-        setControl(new PositionDutyCycle(rotations));
+        setControl(new PositionDutyCycle(rotations).withEnableFOC(foc));
     }
 
     /** Commands the motor to a target position using voltage closed-loop. */
     public void setPositionVoltage(double rotations) {
         simTargetRotations = rotations;
         simStatorCurrent   = 0.0;
-        setControl(new PositionVoltage(rotations));
+        setControl(new PositionVoltage(rotations).withEnableFOC(foc));
     }
 
     /** Commands the motor to a target position using voltage closed-loop with an additional feedforward. */
@@ -217,6 +221,7 @@ public final class Motor1507 {
         setControl(
             new PositionVoltage(rotations)
                 .withFeedForward(ffVolts)
+                .withEnableFOC(foc)
         );
     }
 
@@ -224,7 +229,7 @@ public final class Motor1507 {
     public void setVelocityRPS(double motorRPS) {
         simTargetVelocity = motorRPS;
         simStatorCurrent  = 0.0;
-        setControl(new VelocityVoltage(motorRPS));
+        setControl(new VelocityVoltage(motorRPS).withEnableFOC(foc));
     }
 
     /** Commands the motor to a target velocity in rotations per second with an additional feedforward. */
@@ -234,6 +239,7 @@ public final class Motor1507 {
         setControl(
             new VelocityVoltage(motorRPS)
                 .withFeedForward(ffVolts)
+                .withEnableFOC(foc)
         );
     }
 

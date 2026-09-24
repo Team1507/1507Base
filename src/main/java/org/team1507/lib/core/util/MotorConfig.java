@@ -69,6 +69,7 @@ public record MotorConfig(
 
         boolean brakeMode,
         boolean continuousWrap,
+        boolean enableFOC,
 
         double simVelocityRps
 ) {
@@ -179,6 +180,8 @@ public record MotorConfig(
         private boolean brakeMode = false;
 
         private boolean continuousWrap = false;
+
+        private boolean enableFOC = false;
 
         private double simVelocityRps = 0.0;
 
@@ -505,6 +508,20 @@ public record MotorConfig(
         }
 
         /**
+         * Enables Field Oriented Control (FOC) commutation for this motor's
+         * control requests.
+         *
+         * <p>FOC gives roughly 15% more peak power and more torque per amp than
+         * trapezoidal commutation. <b>Requires a Phoenix Pro license on the
+         * motor.</b> An unlicensed motor reports an UnlicensedFeatureInUse fault
+         * and will not run FOC requests.
+         */
+        public Builder withFOC() {
+            this.enableFOC = true;
+            return this;
+        }
+
+        /**
          * Configures the simulation slew rate for position-controlled motors.
          *
          * <p>The motor's simulated position will move toward its target at this speed
@@ -570,6 +587,7 @@ public record MotorConfig(
                 brakeMode,
 
                 continuousWrap,
+                enableFOC,
 
                 simVelocityRps
             );

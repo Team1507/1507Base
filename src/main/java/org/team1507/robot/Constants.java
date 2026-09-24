@@ -8,26 +8,15 @@
 
 package org.team1507.robot;
 
-import static org.wpilib.units.Units.Amps;
-import static org.wpilib.units.Units.Inches;
-import static org.wpilib.units.Units.MetersPerSecond;
-
-import org.team1507.lib.core.util.MotorConfig;
-import org.team1507.lib.core.util.MotorConfig.ControlMode;
-
 import com.ctre.phoenix6.CANBus;
 import org.wpilib.hardware.bus.CANPort;
-import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 
 import org.wpilib.math.linalg.Matrix;
 import org.wpilib.math.linalg.VecBuilder;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
-import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.numbers.N1;
 import org.wpilib.math.numbers.N3;
-import org.wpilib.units.measure.Current;
-import org.wpilib.units.measure.LinearVelocity;
 
 public class Constants {
 
@@ -48,36 +37,11 @@ public class Constants {
 
     public static final class RobotMap {
 
-        // Front Left module
-        public static final int FL_DRIVE   = 7;
-        public static final int FL_STEER   = 8;
-        public static final int FL_ENCODER = 9;
-        /** Rotations to align the front-left wheel to straight forward. */
-        public static final double FL_ENCODER_OFFSET = 0.129150390625;
-
-        // Front Right module
-        public static final int FR_DRIVE   = 1;
-        public static final int FR_STEER   = 2;
-        public static final int FR_ENCODER = 3;
-        /** Rotations to align the front-right wheel to straight forward. */
-        public static final double FR_ENCODER_OFFSET = -0.28515625;
-
-        // Back Left module
-        public static final int BL_DRIVE   = 4;
-        public static final int BL_STEER   = 5;
-        public static final int BL_ENCODER = 6;
-        /** Rotations to align the back-left wheel to straight forward. */
-        public static final double BL_ENCODER_OFFSET = -0.436767578125;
-
-        // Back Right module
-        public static final int BR_DRIVE   = 10;
-        public static final int BR_STEER   = 11;
-        public static final int BR_ENCODER = 12;
-        /** Rotations to align the back-right wheel to straight forward. */
-        public static final double BR_ENCODER_OFFSET = 0.138671875;
-
-        // Gyro
-        public static final int PIGEON2 = 30;
+        // Drivetrain CAN IDs, CANcoder offsets, and the Pigeon2 ID live in the
+        // Tuner X paste zone at the top of subsystems/Swerve.java, so they can be
+        // pasted straight from Tuner X's generated TunerConstants.java.
+        // Keep every OTHER device's CAN ID here, and check for collisions with
+        // the drivetrain IDs (1-12, Pigeon2 = 30) when adding one.
 
         // Driver Station USB ports
         public static final int DRIVER_CONTROLLER   = 0;
@@ -85,124 +49,29 @@ public class Constants {
     }
 
     // ============================================================
-    // Swerve Drive — kinematics, motor configs, and tuning.
+    // Swerve Drive tuning: knobs adjusted while tuning or at events.
+    //
+    // Swerve HARDWARE facts (gear ratios, wheel size, motor gains, current
+    // limits) live in subsystems/Swerve.java. They only change when the
+    // hardware changes, and they are pasted from Tuner X.
     // ============================================================
 
     public static final class kSwerve {
 
-        // Theoretical free speed at 12 V — tune to your actual robot.
-        public static final LinearVelocity SPEED_AT_12_VOLTS = MetersPerSecond.of(5.04);
-
-        /** Maximum translational speed (m/s). */
-        public static final double MAX_SPEED = SPEED_AT_12_VOLTS.magnitude();
-
-        // Gear ratios and wheel geometry
-        public static final double COUPLE_RATIO        = 3.5714285714285716;
-        public static final double DRIVE_GEAR_RATIO    = 6.122448979591837;
-        public static final double STEER_GEAR_RATIO    = 21.428571428571427;
-        public static final double WHEEL_RADIUS_METERS = 0.049581;
-
-        // Scale factor applied to drive motor output (in meters). Do not set to zero.
-        public static final double DRIVE_METERS_SCALE = 1.0;
-
-        // Steer stator limit — low torque requirement lets us protect against brownouts.
-        private static final Current STEER_STATOR_CURRENT = Amps.of(60);
-
-        // Pose estimator standard deviations [x (m), y (m), heading (rad)].
-        // Lower = trust that source more.
-        public static final Matrix<N3, N1> ODOMETRY_STD_DEV = VecBuilder.fill(0.02, 0.02, 0.05);
-        public static final Matrix<N3, N1> VISION_STD_DEV   = VecBuilder.fill(0.02, 0.02, 0.05);
-
-        // Module positions relative to robot center (WPILib: +X forward, +Y left).
-        public static final Translation2d FRONT_LEFT_LOCATION  = new Translation2d(Inches.of( 10.7375), Inches.of( 10.7375));
-        public static final Translation2d FRONT_RIGHT_LOCATION = new Translation2d(Inches.of( 10.7375), Inches.of(-10.7375));
-        public static final Translation2d BACK_LEFT_LOCATION   = new Translation2d(Inches.of(-10.7375), Inches.of( 10.7375));
-        public static final Translation2d BACK_RIGHT_LOCATION  = new Translation2d(Inches.of(-10.7375), Inches.of(-10.7375));
-
-        /**
-         * Maximum chassis angular rate (rad/s) = v_max / drive_radius.
-         * At 5.04 m/s with modules at ±10.7375" on both axes: ~13.1 rad/s.
-         */
-        public static final double MAX_ANGULAR_RATE =
-            MAX_SPEED / FRONT_LEFT_LOCATION.getNorm();
-
-        // -- Motor Configs -----------------------------------------------
-
-        public static final MotorConfig FRONT_LEFT_DRIVE_CONFIG =
-            MotorConfig.builder(ControlMode.VELOCITY)
-                .inverted(false)
-                .withPID(2.0, 0.0, 0.0)
-                .withFeedforward(0.12, 2.75, 0.32)
-                .build();
-        public static final MotorConfig FRONT_LEFT_STEER_CONFIG =
-            MotorConfig.builder(ControlMode.POSITION)
-                .inverted(true)
-                .withPID(70, 0, 0.2)
-                .withFeedforward(0.08, 2.2, 0.0)
-                .withStatorCurrentLimit(STEER_STATOR_CURRENT)
-                .withFeedbackSensor(FeedbackSensorSourceValue.RemoteCANcoder)
-                .withRemoteSensorId(RobotMap.FL_ENCODER)
-                .withSensorToMechanismRatio(1.0)
-                .withContinuousWrap()
-                .build();
-
-        public static final MotorConfig FRONT_RIGHT_DRIVE_CONFIG =
-            MotorConfig.builder(ControlMode.VELOCITY)
-                .inverted(true)
-                .withPID(2.0, 0.0, 0.0)
-                .withFeedforward(0.12, 2.75, 0.32)
-                .build();
-        public static final MotorConfig FRONT_RIGHT_STEER_CONFIG =
-            MotorConfig.builder(ControlMode.POSITION)
-                .inverted(true)
-                .withPID(70, 0, 0.2)
-                .withFeedforward(0.08, 2.2, 0.0)
-                .withStatorCurrentLimit(STEER_STATOR_CURRENT)
-                .withFeedbackSensor(FeedbackSensorSourceValue.RemoteCANcoder)
-                .withRemoteSensorId(RobotMap.FR_ENCODER)
-                .withSensorToMechanismRatio(1.0)
-                .withContinuousWrap()
-                .build();
-
-        public static final MotorConfig BACK_LEFT_DRIVE_CONFIG =
-            MotorConfig.builder(ControlMode.VELOCITY)
-                .inverted(false)
-                .withPID(2.0, 0.0, 0.0)
-                .withFeedforward(0.12, 2.75, 0.32)
-                .build();
-        public static final MotorConfig BACK_LEFT_STEER_CONFIG =
-            MotorConfig.builder(ControlMode.POSITION)
-                .inverted(true)
-                .withPID(70, 0, 0.2)
-                .withFeedforward(0.08, 2.2, 0.0)
-                .withStatorCurrentLimit(STEER_STATOR_CURRENT)
-                .withFeedbackSensor(FeedbackSensorSourceValue.RemoteCANcoder)
-                .withRemoteSensorId(RobotMap.BL_ENCODER)
-                .withSensorToMechanismRatio(1.0)
-                .withContinuousWrap()
-                .build();
-
-        public static final MotorConfig BACK_RIGHT_DRIVE_CONFIG =
-            MotorConfig.builder(ControlMode.VELOCITY)
-                .inverted(true)
-                .withPID(2.0, 0.0, 0.0)
-                .withFeedforward(0.12, 2.75, 0.32)
-                .build();
-        public static final MotorConfig BACK_RIGHT_STEER_CONFIG =
-            MotorConfig.builder(ControlMode.POSITION)
-                .inverted(true)
-                .withPID(70, 0, 0.2)
-                .withFeedforward(0.08, 2.2, 0.0)
-                .withStatorCurrentLimit(STEER_STATOR_CURRENT)
-                .withFeedbackSensor(FeedbackSensorSourceValue.RemoteCANcoder)
-                .withRemoteSensorId(RobotMap.BR_ENCODER)
-                .withSensorToMechanismRatio(1.0)
-                .withContinuousWrap()
-                .build();
-
-        // -- Command Tuning ----------------------------------------------
-
         public static final class kTuning {
+
+            /**
+             * Pose estimator standard deviations [x (m), y (m), heading (rad)].
+             * Lower = trust that source more.
+             */
+            public static final Matrix<N3, N1> ODOMETRY_STD_DEV = VecBuilder.fill(0.02, 0.02, 0.05);
+            public static final Matrix<N3, N1> VISION_STD_DEV   = VecBuilder.fill(0.02, 0.02, 0.05);
+
+            /**
+             * Scale factor applied to measured drive distance and speed. Use to
+             * correct for worn wheels (1.0 = no correction). Do not set to zero.
+             */
+            public static final double DRIVE_METERS_SCALE = 1.0;
 
             /** Proportional gain for simple heading control (rad/s per radian of error). */
             public static final double HEADING_KP = 5.5;

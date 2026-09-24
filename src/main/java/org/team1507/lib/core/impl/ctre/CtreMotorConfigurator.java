@@ -11,10 +11,13 @@ package org.team1507.lib.core.impl.ctre;
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Volts;
 
+import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.configs.*;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.hardware.TalonFXS;
 import com.ctre.phoenix6.signals.*;
+
+import org.wpilib.driverstation.DriverStationErrors;
 
 import org.team1507.lib.core.util.MotorConfig;
 import org.team1507.lib.core.util.MotorConfig.ControlMode;
@@ -391,11 +394,7 @@ public final class CtreMotorConfigurator {
      * @param cfg    the configuration to apply
      */
     private static void safeApply(TalonFX motor, TalonFXConfiguration cfg) {
-        var status = motor.getConfigurator().apply(cfg);
-        if (!status.isOK()) {
-            System.out.println("[WARN] Failed to apply config to FX "
-                    + motor.getDeviceID() + ": " + status);
-        }
+        applyWithRetry("TalonFX " + motor.getDeviceID(), () -> motor.getConfigurator().apply(cfg));
     }
 
     /**
@@ -406,10 +405,35 @@ public final class CtreMotorConfigurator {
      * @param cfg    the configuration to apply
      */
     private static void safeApply(TalonFXS motor, TalonFXSConfiguration cfg) {
-        var status = motor.getConfigurator().apply(cfg);
-        if (!status.isOK()) {
-            System.out.println("[WARN] Failed to apply config to FXS "
-                    + motor.getDeviceID() + ": " + status);
+        applyWithRetry("TalonFXS " + motor.getDeviceID(), () -> motor.getConfigurator().apply(cfg));
+    }
+
+    /** Attempts before a config failure is reported. Devices still booting often reject the first try. */
+    private static final int CONFIG_ATTEMPTS = 5;
+
+    /**
+     * Runs a CTRE config call until it succeeds, up to {@link #CONFIG_ATTEMPTS} times.
+     *
+     * <p>If every attempt fails, the error is reported to the Driver Station. A
+     * motor that silently keeps factory defaults has no current limits and may
+     * have the wrong inversion or feedback sensor, so this must be visible.
+     *
+     * <p>Also used for CANcoder configuration in {@code SwerveModule1507}.
+     *
+     * @param device  human-readable device name for the error message
+     * @param apply   the config call to run
+     * @return true if the config was applied
+     */
+    public static boolean applyWithRetry(String device, java.util.function.Supplier<StatusCode> apply) {
+        StatusCode status = StatusCode.OK;
+        for (int attempt = 0; attempt < CONFIG_ATTEMPTS; attempt++) {
+            status = apply.get();
+            if (status.isOK()) {
+                return true;
+            }
         }
+        DriverStationErrors.reportError(
+            "Failed to configure " + device + " after " + CONFIG_ATTEMPTS + " attempts: " + status, false);
+        return false;
     }
 }
