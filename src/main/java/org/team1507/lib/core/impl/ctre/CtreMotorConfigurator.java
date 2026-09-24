@@ -282,6 +282,7 @@ public final class CtreMotorConfigurator {
         applyCurrentLimits(cfg.CurrentLimits, base);
         applyTorqueCurrent(cfg.TorqueCurrent, base);
         applyFeedback(cfg.Feedback, base.feedback());
+        applyMotionMagic(cfg.MotionMagic, base);
 
         cfg.ClosedLoopGeneral.ContinuousWrap = base.continuousWrap();
     }
@@ -300,8 +301,21 @@ public final class CtreMotorConfigurator {
         applyLimitSwitches(cfg.HardwareLimitSwitch, base);
         applyCurrentLimits(cfg.CurrentLimits, base);
         applyExternalFeedback(cfg.ExternalFeedback, base.feedback());
+        applyMotionMagic(cfg.MotionMagic, base);
 
         cfg.ClosedLoopGeneral.ContinuousWrap = base.continuousWrap();
+    }
+
+    /**
+     * Applies Motion Magic cruise velocity and acceleration (mechanism
+     * rotations/s and rotations/s²) when the config sets them. Without these,
+     * CTRE's defaults are 0 and a Motion Magic move never starts.
+     */
+    private static void applyMotionMagic(MotionMagicConfigs mm, MotorConfig base) {
+        if (!Double.isNaN(base.motionMagicCruiseRps())) {
+            mm.MotionMagicCruiseVelocity = base.motionMagicCruiseRps();
+            mm.MotionMagicAcceleration = base.motionMagicAccelRps2();
+        }
     }
 
     /**

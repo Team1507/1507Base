@@ -267,6 +267,12 @@ public final class SwerveModule1507 {
     // CAN Bus Access (for bus optimization only)
     // ============================================================
 
+    /** The drive motor (Swerve counts it toward the drivetrain's total current). */
+    public Motor1507 getDriveMotor() { return drive; }
+
+    /** The steer motor (Swerve counts it toward the drivetrain's total current). */
+    public Motor1507 getSteerMotor() { return steer; }
+
     /** Returns the drive motor's Phoenix 6 device handle. Used to optimize CAN bus utilization. */
     public ParentDevice getDriveDevice() { return drive.getDevice(); }
 

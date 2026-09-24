@@ -11,6 +11,7 @@ package org.team1507.robot;
 import org.wpilib.command3.button.CommandGamepad;
 
 import org.team1507.lib.core.framework.LoggedRobot;
+import org.team1507.lib.core.framework.Subsystem1507;
 import org.team1507.robot.auto.AutoBuilder;
 import org.team1507.robot.Constants.RobotMap;
 import org.team1507.robot.subsystems.*;
@@ -52,6 +53,10 @@ public final class Robot extends LoggedRobot {
     // =========================================================================
 
     public Robot() {
+
+        // Every motor created with Subsystem1507.motor(...) goes on this CAN bus
+        // unless it names another one. Must come before creating subsystems.
+        Subsystem1507.setDefaultCanBus(Constants.CAN_BUS);
 
         // Subsystems
         swerve = new Swerve();

@@ -124,6 +124,16 @@ public final class Swerve extends Subsystem1507 {
         this.kinematics = SwerveConfig.kinematics();
         this.pigeon     = new Pigeon2(SwerveConfig.pigeonId(), Constants.CAN_BUS);
 
+        // Count all 8 motors toward Swerve/TotalSupplyCurrent (logged every loop
+        // by Subsystem1507). Swerve refreshes them itself in periodic(), together
+        // with the CANcoders and gyro, so they are tracked, not managed.
+        trackMotors(
+            frontLeft.getDriveMotor(),  frontLeft.getSteerMotor(),
+            frontRight.getDriveMotor(), frontRight.getSteerMotor(),
+            backLeft.getDriveMotor(),   backLeft.getSteerMotor(),
+            backRight.getDriveMotor(),  backRight.getSteerMotor()
+        );
+
         this.yaw = pigeon.getYaw();
         this.yawRate = pigeon.getAngularVelocityZWorld();
 

@@ -114,6 +114,10 @@ public record MotorConfig(
         /** Drum/sprocket circumference for linear mechanisms (meters); NaN = rotary. */
         double drumCircumferenceMeters,
 
+        /** Motion Magic limits in mechanism rotations/s and rotations/s²; NaN = not set. */
+        double motionMagicCruiseRps,
+        double motionMagicAccelRps2,
+
         /** "At target" tolerances used by Motor1507.isAtTarget(); NaN = not set. */
         double toleranceDegrees,
         double toleranceMeters,
@@ -145,6 +149,11 @@ public record MotorConfig(
      *
      * <p>{@code DUTY_CYCLE} and {@code TORQUE} are open-loop — PID and feedforward
      * slot gains are not written to hardware for these modes.
+     *
+     * <p>{@code MOTION_MAGIC} is position control with a smooth speed profile
+     * (speeds up, cruises, slows down). Don't set it directly: use
+     * {@code withMotionMagicDegrees(...)} or {@code withMotionMagicMeters(...)},
+     * which also give it the speed limits it needs.
      */
     public enum ControlMode { DUTY_CYCLE, TORQUE, VELOCITY, POSITION, MOTION_MAGIC }
 
@@ -338,6 +347,12 @@ public record MotorConfig(
             problems.add(mode + " is open-loop, so PID/feedforward gains are ignored. "
                 + "Remove them or use a closed-loop preset.");
         }
+        if (mode == ControlMode.MOTION_MAGIC
+                && !(motionMagicCruiseRps > 0 && motionMagicAccelRps2 > 0)) {
+            problems.add("MOTION_MAGIC needs a max speed and acceleration, or the mechanism "
+                + "won't move (CTRE's defaults are 0): add .withMotionMagicDegrees(...) or "
+                + ".withMotionMagicMeters(...). An elevator also needs its drum diameter.");
+        }
         if (mode == ControlMode.TORQUE && !enableFOC) {
             problems.add("TORQUE control needs FOC (Phoenix Pro): add .withFOC().");
         }
@@ -404,6 +419,12 @@ public record MotorConfig(
 
         private double drumCircumferenceMeters = Double.NaN;
 
+        private double motionMagicCruiseRps = Double.NaN;
+        private double motionMagicAccelRps2 = Double.NaN;
+        // Meters are converted in build(), once the drum diameter is known.
+        private double motionMagicCruiseMps = Double.NaN;
+        private double motionMagicAccelMps2 = Double.NaN;
+
         private double toleranceDegrees = Double.NaN;
         private double toleranceMeters = Double.NaN;
         private double toleranceRpm = Double.NaN;
@@ -456,6 +477,8 @@ public record MotorConfig(
             sensorToMechanismRatio = c.feedback.sensorToMechanismRatio();
             rotorOffset = c.feedback.rotorOffset();
             drumCircumferenceMeters = c.drumCircumferenceMeters;
+            motionMagicCruiseRps = c.motionMagicCruiseRps;
+            motionMagicAccelRps2 = c.motionMagicAccelRps2;
             toleranceDegrees = c.toleranceDegrees;
             toleranceMeters = c.toleranceMeters;
             toleranceRpm = c.toleranceRpm;
@@ -567,6 +590,46 @@ public record MotorConfig(
         /** Same as {@link #withDrumDiameterMeters(double)}, in inches. */
         public Builder withDrumDiameterInches(double diameterInches) {
             return withDrumDiameterMeters(diameterInches * INCHES_TO_METERS);
+        }
+
+        // ── Motion Magic (smooth moves) ──────────────────────────────────────
+
+        /**
+         * Smooth position moves for rotating mechanisms: the motor speeds up to
+         * {@code maxDegreesPerSec}, cruises, and slows down in time to stop on
+         * target, never accelerating faster than {@code maxDegreesPerSec2}.
+         * Switches the config to Motion Magic.
+         *
+         * <pre>
+         *   MotorConfig.arm().gearRatio(50).withMotionMagicDegrees(180, 360)   // 180°/s, 360°/s²
+         * </pre>
+         */
+        public Builder withMotionMagicDegrees(double maxDegreesPerSec, double maxDegreesPerSec2) {
+            return withMotionMagicRotations(maxDegreesPerSec / 360.0, maxDegreesPerSec2 / 360.0);
+        }
+
+        /**
+         * Smooth position moves for linear mechanisms (elevators), in meters/s and
+         * meters/s². Needs the drum diameter. Switches the config to Motion Magic.
+         */
+        public Builder withMotionMagicMeters(double maxMetersPerSec, double maxMetersPerSec2) {
+            this.mode = ControlMode.MOTION_MAGIC;
+            this.motionMagicCruiseMps = maxMetersPerSec;
+            this.motionMagicAccelMps2 = maxMetersPerSec2;
+            return this;
+        }
+
+        /**
+         * Motion Magic limits in mechanism rotations/s and rotations/s² (CTRE's
+         * own units). Most code should use the degrees or meters version.
+         */
+        public Builder withMotionMagicRotations(double maxRotationsPerSec, double maxRotationsPerSec2) {
+            this.mode = ControlMode.MOTION_MAGIC;
+            this.motionMagicCruiseRps = maxRotationsPerSec;
+            this.motionMagicAccelRps2 = maxRotationsPerSec2;
+            this.motionMagicCruiseMps = Double.NaN;
+            this.motionMagicAccelMps2 = Double.NaN;
+            return this;
         }
 
         // ── "At target" tolerances (Motor1507.isAtTarget) ───────────────────
@@ -737,6 +800,13 @@ public record MotorConfig(
 
         /** Creates the immutable {@link MotorConfig}. */
         public MotorConfig build() {
+            double cruiseRps = motionMagicCruiseRps;
+            double accelRps2 = motionMagicAccelRps2;
+            if (!Double.isNaN(motionMagicCruiseMps)) {
+                // NaN if there's no drum diameter; problems() then reports it.
+                cruiseRps = motionMagicCruiseMps / drumCircumferenceMeters;
+                accelRps2 = motionMagicAccelMps2 / drumCircumferenceMeters;
+            }
             return new MotorConfig(
                 preset, slotNumber,
                 mode, motorInverted,
@@ -752,6 +822,7 @@ public record MotorConfig(
                 reverseLimitEnable, reverseLimitAutosetEnable, reverseLimitAutosetValue, reverseLimitType,
                 new Feedback(feedbackSource, feedbackRemoteId, rotorToSensorRatio, sensorToMechanismRatio, rotorOffset),
                 drumCircumferenceMeters,
+                cruiseRps, accelRps2,
                 toleranceDegrees, toleranceMeters, toleranceRpm,
                 stallCurrentThreshold, stallVelocityThreshold, stallTimeSeconds,
                 brakeMode, continuousWrap, enableFOC,

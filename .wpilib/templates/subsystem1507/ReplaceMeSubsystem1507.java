@@ -20,8 +20,9 @@ public class ReplaceMeSubsystem1507 extends Subsystem1507 {
   public ReplaceMeSubsystem1507() {
     super("ReplaceMeSubsystem1507");
 
-    // TODO: Configure hardware
-    // motor = new Motor1507(key("Motor"), Motor1507.Type.FX, RobotMap.MY_MOTOR, Constants.CAN_BUS, CONFIG);
+    // TODO: Create motors with motor(...). Subsystem1507 then refreshes them,
+    // simulates them, and logs their total current every loop automatically.
+    // motor = motor("Motor", Motor1507.Type.FX, RobotMap.MY_MOTOR, kMySubsystem.CONFIG);
   }
 
   // ---- Commands (Commands v3) ----
@@ -33,27 +34,28 @@ public class ReplaceMeSubsystem1507 extends Subsystem1507 {
   /** Runs until interrupted (bind with whileTrue). */
   public Command exampleRunCommand() {
     return runRepeatedly(() -> {
-          // TODO: set motor output every loop
+          // TODO: set motor output every loop, e.g. motor.setRPM(3000);
         })
         .whenCanceled(() -> {
-          // TODO: stop the motor
+          // TODO: stop the motor, e.g. motor.stop();
         })
         .named("ReplaceMeSubsystem1507.run");
   }
 
-  /** Does one thing and finishes immediately (bind with onTrue). */
-  public Command exampleOnceCommand() {
+  /** Moves to a target and finishes when it gets there (bind with onTrue). */
+  public Command exampleMoveCommand() {
     return run(coroutine -> {
-          // TODO: one-time action
+          // TODO: e.g. motor.setPosition(90);   // degrees
+          // coroutine.waitUntil(motor::isAtTarget);
         })
-        .named("ReplaceMeSubsystem1507.once");
+        .named("ReplaceMeSubsystem1507.move");
   }
 
   /** What this subsystem does when no command is using it. Set it as the default in Robot.java. */
   @Override
   public Command idle() {
     return run(coroutine -> {
-          // TODO: stop the motor
+          // TODO: stop the motor, e.g. motor.stop();
           coroutine.park();
         })
         .withPriority(Command.LOWEST_PRIORITY)
@@ -62,19 +64,8 @@ public class ReplaceMeSubsystem1507 extends Subsystem1507 {
 
   @Override
   public void periodic() {
-    // Runs every loop, before commands.
-
-    // TODO: Read each motor's latest values from CAN FIRST. Without this, every
-    // motor getter (position, RPM, current) returns the same old value forever.
-    // motor.refresh();
-
-    // TODO: Log telemetry
-    // log("someField", someValue);
-  }
-
-  @Override
-  public void simulationPeriodic() {
-    // Runs every loop in simulation only. Without this, motors don't move in sim.
-    // motor.simulationPeriodic(0.02);
+    // Runs every loop, before commands. The motors were already refreshed.
+    // TODO: Log telemetry, e.g. log("PositionDeg", motor.getPosition());
+    // TODO: Flag problems, e.g. warnIf(motor.isStalled(), "Motor stalled");
   }
 }

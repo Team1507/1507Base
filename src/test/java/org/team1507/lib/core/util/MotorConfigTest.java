@@ -143,6 +143,7 @@ class MotorConfigTest {
             .gearRatio(17)
             .withRotorOffset(0.25)
             .withDrumDiameterMeters(0.04)
+            .withMotionMagicRotations(3, 6)
             .withToleranceDegrees(1.5)
             .withToleranceMeters(0.02)
             .withToleranceRPM(75)
@@ -205,6 +206,38 @@ class MotorConfigTest {
                 .withCtreConfig(c -> c.CurrentLimits.StatorCurrentLimit = 99)
                 .build());
         assertEquals(99.0, cfg.CurrentLimits.StatorCurrentLimit);
+    }
+
+    // ── Motion Magic ─────────────────────────────────────────────────────────
+
+    @Test
+    void motionMagicDegreesBecomeCtreRotations() {
+        MotorConfig arm = MotorConfig.arm().gearRatio(50).withMotionMagicDegrees(180, 360).build();
+        assertEquals(ControlMode.MOTION_MAGIC, arm.mode(), "setting Motion Magic switches the mode");
+        assertEquals(List.of(), arm.problems());
+
+        TalonFXConfiguration cfg = CtreMotorConfigurator.toTalonFXConfiguration(arm);
+        assertEquals(0.5, cfg.MotionMagic.MotionMagicCruiseVelocity, 1e-12);   // 180°/s = 0.5 rot/s
+        assertEquals(1.0, cfg.MotionMagic.MotionMagicAcceleration, 1e-12);     // 360°/s² = 1 rot/s²
+    }
+
+    @Test
+    void motionMagicMetersUseTheDrum() {
+        MotorConfig elevator = MotorConfig.elevator()
+            .withDrumDiameterMeters(0.05)
+            .withMotionMagicMeters(1.0, 2.0)
+            .build();
+        assertEquals(List.of(), elevator.problems());
+        assertEquals(1.0 / (Math.PI * 0.05), elevator.motionMagicCruiseRps(), 1e-12);
+        assertEquals(2.0 / (Math.PI * 0.05), elevator.motionMagicAccelRps2(), 1e-12);
+    }
+
+    @Test
+    void motionMagicWithoutLimitsFailsTheBuild() {
+        // CTRE's defaults are 0, so this mechanism would never move.
+        assertFalse(MotorConfig.arm().mode(ControlMode.MOTION_MAGIC).build().problems().isEmpty());
+        // Meters without a drum can't be converted.
+        assertFalse(MotorConfig.elevator().withMotionMagicMeters(1, 2).build().problems().isEmpty());
     }
 
     // ── problems() catches mistakes ──────────────────────────────────────────

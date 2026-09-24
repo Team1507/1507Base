@@ -39,6 +39,8 @@ This audit checks the code against four goals:
 | **Cleanup** | AdvantageKit removed (M6); unused imports; the gear-ratio check the IDE flagged as dead code |
 | **Build-time checks** | `SwerveConfigTest`, `MotorConfigConstantsTest`, `MotorConfigTest`, `Motor1507Test`, `SwerveCommandsTest`, `CommandsV3PatternsTest` (+ `NodeBoundsTest`); GitHub Actions runs them on every push |
 | **Docs** | Season Setup Checklist with matching `TODO(SEASON SWERVE-n)` tags; wiki rewritten for 2027 (Home, Getting Started, Swerve Drive, Motor Configuration, Adding a Subsystem, Button Bindings, Autonomous, Code Architecture) |
+| **Step 3: `Subsystem1507`** (fixed H-1) | `motor(...)` creates and registers a motor; every loop the base class refreshes all its motors in one CAN call, runs `periodic()`, logs `<Subsystem>/TotalSupplyCurrent`, and steps the sim. Default CAN bus set once in `Robot.java`. `warnIf`/`faultIf` alerts clear themselves. Swerve's 8 motors count toward its current. `Subsystem1507Test` |
+| **Motion Magic** (fixed M-1) | `withMotionMagicDegrees` / `withMotionMagicMeters` / `withMotionMagicRotations`; the build fails if Motion Magic has no speed limits |
 | **Comments (this audit)** | 13 stale or wrong comments fixed; see [Goal 4](#goal-4-comment-accuracy) |
 
 ---
@@ -47,9 +49,8 @@ This audit checks the code against four goals:
 
 The code is in much better shape than at the first audit. **No critical findings remain in code.** The open critical work is on the robot: verifying swerve on blocks and running SysId. The drivetrain is correct on paper, heavily tested, and set up for Tuner X.
 
-Two gaps stand between here and "where you want it":
+One gap stands between here and "where you want it" (H-1, the student boilerplate, was fixed by Step 3):
 
-- 🟠 **Student subsystems still need boilerplate that's easy to forget** (H-1). A subsystem that doesn't call `motor.refresh()` reads **stale motor values forever**, and one that doesn't call `motor.simulationPeriodic()` doesn't move in sim. This is exactly what Step 3 (`Subsystem1507`) was planned to fix.
 - 🟠 **The logs still can't diagnose a brownout** (H-2). Battery voltage, the brownout flag, PDH currents, per-subsystem current and command events aren't logged, and motor current is recorded at 10 Hz. This is the logging work.
 
 Loop efficiency is good: nothing heavy runs every loop (see [Goal 2](#goal-2-no-loop-overruns)).
@@ -60,12 +61,8 @@ Loop efficiency is good: nothing heavy runs every loop (see [Goal 2](#goal-2-no-
 
 ### 🟠 High
 
-#### H-1. Student subsystems must remember `refresh()` and `simulationPeriodic()`
-`Motor1507`'s getters return the **last value read from CAN**. Nothing refreshes a subsystem's motors automatically, so a subsystem that forgets `motor.refresh()` in `periodic()` sees position 0, RPM 0 and current 0 forever. `isAtTarget()` never becomes true, stall detection never fires, and logs show zeros. The same goes for `motor.simulationPeriodic(0.02)`: without it, motors don't move in the simulator.
-
-The 2026 robot handled this by hand in every subsystem (signal arrays, `refreshAll`, sim overrides). This audit added warnings to the subsystem template and the wiki's Adding a Subsystem example, but a comment is not a fix.
-
-**Fix: Step 3.** `Subsystem1507.motor(...)` creates and registers the motor; the base class refreshes all registered motors in one CAN call and steps the sim every loop. It also enables per-subsystem current totals for H-2.
+#### ~~H-1. Student subsystems must remember `refresh()` and `simulationPeriodic()`~~ ✅ Fixed (Step 3)
+Motors created with `Subsystem1507.motor(...)` are refreshed (one CAN call per subsystem) before `periodic()` and stepped in sim automatically. `Subsystem1507Test` checks it with a subsystem that has no refresh or sim code.
 
 #### H-2. Logging can't diagnose a brownout yet
 
@@ -82,20 +79,19 @@ What the match log contains today (NetworkTables recorded by `DataLogManager`, p
 | Auto step timing | ✅ with `.withDebug()` | on change |
 | **Battery voltage, brownout flag** | ❌ | — |
 | **PDH per-channel and total current** | ❌ | — |
-| **Current per subsystem** | ❌ | — |
+| Current per subsystem (`<Subsystem>/TotalSupplyCurrent`) | ✅ (Step 3) | every loop, from 10 Hz motor current |
 | **Command events** (started, ended, interrupted by what, crashed) | ❌ | — |
 | **CAN bus utilization, loop time** | ❌ | — |
 | The 15 `MotorSignal`s (faults, supply voltage, closed-loop error...) | ❌ (`Motor1507.logTo()` exists but nothing calls it) | — |
 
 At 10 Hz, a 30 ms current spike happens between samples.
 
-**Fix: the logging work** (planned): WPILib 2027 Telemetry underneath, full-rate motor logging through `logTo()`, power and CAN data in `LoggedRobot`, Commands v3 scheduler events, per-subsystem current (needs H-1's fix). CTRE's `.hoot` log also starts automatically (seen in sim) and may cover high-rate motor data.
+**Fix: the logging work** (planned): WPILib 2027 Telemetry underneath, full-rate motor logging through `logTo()`, power and CAN data in `LoggedRobot`, Commands v3 scheduler events, per-subsystem current (`TotalSupplyCurrent` is already logged since Step 3). CTRE's `.hoot` log also starts automatically (seen in sim) and may cover high-rate motor data.
 
 ### 🟡 Medium
 
-#### M-1. `ControlMode.MOTION_MAGIC` silently doesn't move
-Choosing `MOTION_MAGIC` sends a Motion Magic request, but `MotorConfig` has no way to set Motion Magic's cruise velocity and acceleration, and CTRE's defaults for both are **0**. The mechanism holds still with no error. Today only `withCtreConfig(cfg -> cfg.MotionMagic...)` works around it.
-**Fix:** add `.withMotionMagic(cruiseRps, accelRps2)` to `MotorConfig`, and a `problems()` check that fails the build if MOTION_MAGIC has no cruise velocity.
+#### ~~M-1. `ControlMode.MOTION_MAGIC` silently doesn't move~~ ✅ Fixed
+`MotorConfig` now has `withMotionMagicDegrees` / `withMotionMagicMeters` / `withMotionMagicRotations`, and `problems()` fails the build if Motion Magic has no cruise velocity or acceleration.
 
 #### M-2. CAN bus load is unmeasured
 Each `Motor1507` now reports 15 signals (position/velocity at 100 Hz, current/voltage at 50 Hz, the rest at 10 Hz). The swerve alone is 8 motors, 4 CANcoders and a Pigeon 2 on one SystemCore CAN port, which runs classic CAN (not CAN FD). This could get tight once mechanisms are added to the same port.
@@ -120,7 +116,6 @@ A subsystem used in autos must be added to `AutoBuilder` (field + `init()` param
 
 - **Wiki pages still describing 2026:** Telemetry and Logging, QuestNav. Both are flagged on the Home page.
 - **Season Setup Checklist** covers Swerve only. Field/auto, vision, project setup and logging sections are still to be written.
-- `Subsystem1507`'s class comment links `{@link Motor1507}` without importing it (a Javadoc warning only).
 - `RobotMap.OPERATOR_CONTROLLER` is defined but unused (fine for a skeleton; the operator gamepad isn't created yet).
 - **Cosine scaling** for swerve modules (slow the wheel while it's still turning) is planned for Phase 2.
 - `roller()` (torque control) on a **TalonFXS/Minion** is untested. TalonFX is confirmed.
@@ -135,7 +130,7 @@ What a student writes to add a mechanism today:
 |---|---|---|---|
 | CAN ID | `Constants.RobotMap` | 1 line | |
 | Motor config | `Constants.kX` | 3–5 lines with a preset | ✅ Checked at build time |
-| Subsystem class | `robot/subsystems/X.java` | Template generates it | ⚠️ Must remember `refresh()` and `simulationPeriodic()` (H-1) |
+| Subsystem class | `robot/subsystems/X.java` | Template generates it | ✅ `motor(...)` handles refresh, sim and current logging (Step 3) |
 | Commands | subsystem | `runRepeatedly(...)`/`run(...)` + `.named()` | ✅ Goal-based motor calls in degrees/RPM |
 | Default command | `Robot.java` | 1 line | |
 | Button bindings | `DriverTeleop` | 1 line each | ✅ Removed automatically with the OpMode |
@@ -143,7 +138,7 @@ What a student writes to add a mechanism today:
 
 **Strong points:** presets hide CTRE's config names; motor calls take the units students think in; the build catches bad configs, swerve pastes and field positions; the wiki examples compile against the real code.
 
-**Remaining friction:** H-1 (Step 3) and M-5 (autos, on hold).
+**Remaining friction:** M-5 (autos, on hold).
 
 ---
 
@@ -173,7 +168,7 @@ The logging work should also record **loop time and overruns** so this can be ch
 
 ## Goal 3: Logs everything we want
 
-See **H-2**. In short: the swerve and per-motor basics are logged, but none of the brownout questions can be answered yet. After Step 3 and the logging work, the log should contain, every loop:
+See **H-2**. In short: the swerve and per-motor basics are logged, but none of the brownout questions can be answered yet. Step 3 added per-subsystem current. After the logging work, the log should contain, every loop:
 
 - battery voltage and brownout flag
 - PDH per-channel and total current
@@ -201,8 +196,8 @@ Every comment was read against the current code. These were stale or wrong, and 
 | `Telemetry` | handles "command lifecycle" logging | Removed with `CommandBuilder`; notes the planned replacement |
 | `Telemetry`, `VisionConsumer`, `Swerve` | "FPGA timestamp" | Robot timestamp (`Timer.getTimestamp()`); SystemCore has no FPGA |
 | `CtreMotorConfigurator` | CANcoders configured in `SwerveModule1507` | In `SwerveConfig` |
-| Subsystem template | no mention of `refresh()` or sim | Explains both, with the consequence of forgetting (H-1) |
-| Wiki: Adding a Subsystem | example had no sim step | Adds `simulationPeriodic()` |
+| Subsystem template | no mention of `refresh()` or sim | Explains both (H-1); since Step 3, `motor(...)` does both and the template says so |
+| Wiki: Adding a Subsystem | example had no sim step | Added `simulationPeriodic()`; since Step 3, uses `motor(...)` and needs neither |
 
 Comments added during this session (Motor1507, MotorConfig, SwerveConfig, Swerve, the v3 framework classes) were re-read and match the code.
 
@@ -225,12 +220,11 @@ Comments added during this session (Motor1507, MotorConfig, SwerveConfig, Swerve
 
 ## Recommended next steps
 
-1. **Step 3: `Subsystem1507`** — `motor(...)` registration, automatic refresh + sim, per-subsystem current, alerts for faults, default CAN bus set once. Fixes H-1 and unlocks per-subsystem current for logging.
+1. ~~**Step 3: `Subsystem1507`**~~ ✅ Done (fixed H-1, and M-1 rode along).
 2. **Logging work** — WPILib Telemetry, full-rate motor logging, power/CAN/loop-time logging, command events, then retire `InputField`. Fixes H-2 and M-4. Includes the Telemetry and Logging wiki page and a LOGGING section in the Season Setup Checklist.
-3. **Motion Magic in `MotorConfig`** (M-1) — small; can ride along with Step 3.
-4. **Robot time** (when the MK5n modules are built) — Season Setup Checklist SWERVE-3 to SWERVE-8.
-5. **Phase 3 simulation** (M-3), then **Phase 2 swerve library** (odometry thread, current budget, acceleration limiting, cosine scaling).
-6. **Revisit autos** (M-5) and **restore QuestNav** once its 2027 build ships.
+3. **Robot time** (when the MK5n modules are built) — Season Setup Checklist SWERVE-3 to SWERVE-8.
+4. **Phase 3 simulation** (M-3), then **Phase 2 swerve library** (odometry thread, current budget, acceleration limiting, cosine scaling).
+5. **Revisit autos** (M-5) and **restore QuestNav** once its 2027 build ships.
 
 ---
 
