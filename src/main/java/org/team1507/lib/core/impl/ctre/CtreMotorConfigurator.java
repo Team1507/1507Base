@@ -74,6 +74,18 @@ public final class CtreMotorConfigurator {
      * @param configs ordered motor configuration specifications
      */
     private static void applyFX(TalonFX motor, MotorConfig[] configs) {
+        safeApply(motor, toTalonFXConfiguration(configs));
+    }
+
+    /**
+     * Builds the complete CTRE {@link TalonFXConfiguration} for these configs
+     * without touching hardware: every slot, the base settings from slot 0, and
+     * finally slot 0's {@code withCtreConfig} override (so it wins).
+     *
+     * <p>Public so tests can check exactly what a MotorConfig turns into.
+     */
+    public static TalonFXConfiguration toTalonFXConfiguration(MotorConfig... configs) {
+        requireSlot0(configs);
         TalonFXConfiguration cfg = new TalonFXConfiguration();
 
         for (MotorConfig config : configs) {
@@ -81,7 +93,11 @@ public final class CtreMotorConfigurator {
         }
 
         applyBase(cfg, configs[0]);
-        safeApply(motor, cfg);
+
+        if (configs[0].ctreFxConfig() != null) {
+            configs[0].ctreFxConfig().accept(cfg);
+        }
+        return cfg;
     }
 
     // ============================================================
@@ -99,6 +115,12 @@ public final class CtreMotorConfigurator {
      * @param configs ordered motor configuration specifications
      */
     private static void applyFXS(TalonFXS motor, MotorConfig[] configs) {
+        safeApply(motor, toTalonFXSConfiguration(configs));
+    }
+
+    /** Same as {@link #toTalonFXConfiguration}, for TalonFXS (Minion) motors. */
+    public static TalonFXSConfiguration toTalonFXSConfiguration(MotorConfig... configs) {
+        requireSlot0(configs);
         TalonFXSConfiguration cfg = new TalonFXSConfiguration();
 
         cfg.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
@@ -108,7 +130,17 @@ public final class CtreMotorConfigurator {
         }
 
         applyBase(cfg, configs[0]);
-        safeApply(motor, cfg);
+
+        if (configs[0].ctreFxsConfig() != null) {
+            configs[0].ctreFxsConfig().accept(cfg);
+        }
+        return cfg;
+    }
+
+    private static void requireSlot0(MotorConfig[] configs) {
+        if (configs.length == 0 || configs[0].slotNumber() != 0) {
+            throw new IllegalArgumentException("First MotorConfig must be slot 0");
+        }
     }
 
     // ============================================================
@@ -344,6 +376,14 @@ public final class CtreMotorConfigurator {
 
         cl.SupplyCurrentLimit = base.supplyCurrentLimit().in(Amps);
         cl.SupplyCurrentLimitEnable = true;
+
+        // Lower (sustained) supply limit. When a config doesn't set one, CTRE's
+        // default stays in place: 40 A after 1 s of limiting. That default only
+        // matters for supply limits above 40 A, and it's a useful safety net there.
+        if (!Double.isNaN(base.supplyLowerLimitAmps())) {
+            cl.SupplyCurrentLowerLimit = base.supplyLowerLimitAmps();
+            cl.SupplyCurrentLowerTime = base.supplyLowerTime();
+        }
     }
 
     // ============================================================

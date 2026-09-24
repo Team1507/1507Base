@@ -10,6 +10,12 @@ package org.team1507.lib.core.util;
 
 import static org.wpilib.units.Units.Amps;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+
+import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.configs.TalonFXSConfiguration;
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 import com.ctre.phoenix6.signals.ForwardLimitTypeValue;
 import com.ctre.phoenix6.signals.ReverseLimitTypeValue;
@@ -20,15 +26,55 @@ import org.wpilib.units.measure.Current;
 /**
  * Declarative motor configuration for {@link org.team1507.lib.core.impl.ctre.Motor1507}.
  *
- * <p>Describes all hardware settings for a CTRE TalonFX or TalonFXS in a single
- * immutable value. Use {@link #builder()} or {@link #builder(ControlMode)} to
- * construct an instance, then pass it to {@code Motor1507}'s constructor.
+ * <p>Describes all hardware settings for a CTRE TalonFX or TalonFXS in one
+ * immutable value, using simple names instead of CTRE's long config names.
  *
- * <p>Multiple {@code MotorConfig} objects can be passed to a single motor to
- * populate several PID slots. The first config (slot 0) also defines all base
- * hardware settings such as current limits, neutral mode, and feedback sensor.
+ * <h2>Start from a preset</h2>
+ * A preset fills in everything that is the same for every mechanism of that
+ * kind (control mode, brake/coast, current limits, gravity type, tolerance).
+ * You add only what is specific to YOUR mechanism, and anything you add wins:
+ *
+ * <pre>
+ *   public static final MotorConfig RIGHT_ARM = MotorConfig.arm()
+ *       .gearRatio(50.0)            // motor turns per arm turn
+ *       .withPID(0.5, 0.0, 0.0)
+ *       .withGravity(0.1)
+ *       .build();
+ *
+ *   // Same arm on the other side, mirrored:
+ *   public static final MotorConfig LEFT_ARM = MotorConfig.copy(RIGHT_ARM)
+ *       .inverted(true)
+ *       .build();
+ * </pre>
+ *
+ * <table>
+ *   <caption>Preset starting values (all overridable)</caption>
+ *   <tr><th>Preset</th><th>Control</th><th>Neutral</th><th>Stator / supply</th><th>Other</th></tr>
+ *   <tr><td>{@link #roller()}</td><td>torque (Phoenix Pro)</td><td>coast</td><td>80 A / 35 A, 15 A after 4 s</td><td>stall detection</td></tr>
+ *   <tr><td>{@link #flywheel()}</td><td>velocity</td><td>coast</td><td>80 A / 40 A</td><td>50 RPM tolerance</td></tr>
+ *   <tr><td>{@link #arm()}</td><td>position</td><td>brake</td><td>60 A / 30 A</td><td>cosine gravity, 2° tolerance</td></tr>
+ *   <tr><td>{@link #elevator()}</td><td>position</td><td>brake</td><td>80 A / 30 A</td><td>constant gravity, 1 cm tolerance, needs a drum diameter</td></tr>
+ *   <tr><td>{@link #position()}</td><td>position</td><td>brake</td><td>60 A / 30 A</td><td>no gravity, 2° tolerance</td></tr>
+ * </table>
+ *
+ * <p>Sources for the starting values: CTRE's current-limit guide (elevator
+ * 80 A / 30 A), Team 340's 2026 robot (flywheel 80 A / 40 A, coast; rollers with
+ * a low sustained supply limit). Supply limits are our main brownout
+ * protection, so every preset has one.
+ *
+ * <h2>Anything CTRE has that this doesn't</h2>
+ * {@link Builder#withCtreConfig(Consumer)} runs LAST, so you can paste a CTRE
+ * example unchanged and it overrides everything above it.
+ *
+ * <h2>Checked on every build</h2>
+ * {@link #problems()} lists mistakes that compile fine but break the robot.
+ * {@code MotorConfigConstantsTest} runs it on every MotorConfig in Constants.java.
+ *
+ * <p>Multiple configs can be passed to one motor to fill several PID slots.
+ * The first config (slot 0) also defines all base hardware settings.
  */
 public record MotorConfig(
+        Preset preset,
         int slotNumber,
 
         ControlMode mode,
@@ -46,6 +92,9 @@ public record MotorConfig(
 
         Current statorCurrentLimit,
         Current supplyCurrentLimit,
+        /** Supply limit after {@link #supplyLowerTime()} seconds of limiting; NaN = not used. */
+        double supplyLowerLimitAmps,
+        double supplyLowerTime,
 
         double peakForwardTorqueCurrent,
         double peakReverseTorqueCurrent,
@@ -62,6 +111,14 @@ public record MotorConfig(
 
         Feedback feedback,
 
+        /** Drum/sprocket circumference for linear mechanisms (meters); NaN = rotary. */
+        double drumCircumferenceMeters,
+
+        /** "At target" tolerances used by Motor1507.isAtTarget(); NaN = not set. */
+        double toleranceDegrees,
+        double toleranceMeters,
+        double toleranceRpm,
+
         // ---------------------------
         // Stall detection thresholds
         // ---------------------------
@@ -73,18 +130,25 @@ public record MotorConfig(
         boolean continuousWrap,
         boolean enableFOC,
 
-        double simVelocityRps
+        double simVelocityRps,
+
+        /** Raw CTRE overrides, applied last. Null = none. */
+        Consumer<TalonFXConfiguration> ctreFxConfig,
+        Consumer<TalonFXSConfiguration> ctreFxsConfig
 ) {
 
+    /** Which preset a config started from (CUSTOM = plain builder). */
+    public enum Preset { CUSTOM, ROLLER, FLYWHEEL, ARM, ELEVATOR, POSITION }
+
     /**
-     * Selects the closed-loop control strategy applied by the configurator and motor.
+     * Selects the control strategy applied by the configurator and motor.
      *
      * <p>{@code DUTY_CYCLE} and {@code TORQUE} are open-loop — PID and feedforward
      * slot gains are not written to hardware for these modes.
      */
-    public static enum ControlMode { DUTY_CYCLE, TORQUE, VELOCITY, POSITION, MOTION_MAGIC }
+    public enum ControlMode { DUTY_CYCLE, TORQUE, VELOCITY, POSITION, MOTION_MAGIC }
 
-    public static enum GravityType {
+    public enum GravityType {
         /** No gravity compensation. */
         NONE,
         /** Arm mechanisms — kG × cos(position). Maps to {@code Arm_Cosine}. */
@@ -110,30 +174,193 @@ public record MotorConfig(
         double rotorOffset
     ) {}
 
-    /**
-     * Returns a new {@link Builder} with all defaults and {@code DUTY_CYCLE} mode.
-     */
+    private static final double INCHES_TO_METERS = 0.0254;
+
+    // =========================================================================
+    // Starting points
+    // =========================================================================
+
+    /** A plain builder with CTRE-like defaults and {@code DUTY_CYCLE} mode. Prefer a preset. */
     public static Builder builder() {
         return new Builder();
     }
 
-    /**
-     * Returns a new {@link Builder} with the given control mode pre-set.
-     *
-     * @param mode the closed-loop control strategy for this motor
-     */
+    /** A plain builder with the given control mode. Prefer a preset. */
     public static Builder builder(ControlMode mode) {
         return new Builder().mode(mode);
     }
 
     /**
+     * Intake/feeder rollers where FORCE matters more than speed: torque control
+     * keeps pushing as the load grows (e.g. more game pieces in the hopper).
+     * Coast, 80 A stator / 35 A supply dropping to 15 A after 4 s of limiting,
+     * so a jammed roller can't drain the battery. Stall detection on.
+     *
+     * <p>Torque control (TorqueCurrentFOC) requires a Phoenix Pro license. For a
+     * roller that should hold a SPEED instead, use {@link #flywheel()}.
+     */
+    public static Builder roller() {
+        return new Builder()
+            .preset(Preset.ROLLER)
+            .mode(ControlMode.TORQUE)
+            .withCoast()
+            .withStatorCurrentLimit(80.0)
+            .withSupplyCurrentLimit(35.0)
+            .withSupplyLowerLimit(15.0, 4.0)
+            .withPeakTorqueCurrent(80.0, -80.0)
+            .withFOC();
+    }
+
+    /**
+     * Shooter flywheels and anything that should hold a SPEED.
+     * Velocity control, coast, 80 A stator / 40 A supply, 50 RPM tolerance.
+     * Tuning tip (CTRE): kP about 0.1–0.4, kD = 0, and never use ramp rates.
+     */
+    public static Builder flywheel() {
+        return new Builder()
+            .preset(Preset.FLYWHEEL)
+            .mode(ControlMode.VELOCITY)
+            .withCoast()
+            .withStatorCurrentLimit(80.0)
+            .withSupplyCurrentLimit(40.0)
+            .withToleranceRPM(50.0);
+    }
+
+    /**
+     * Arms and pivots that gravity pulls down harder when horizontal.
+     * Position control, brake, cosine gravity, 60 A stator / 30 A supply,
+     * 2° tolerance. Set {@code gearRatio()} so positions are in arm degrees,
+     * and zero the arm when horizontal so cosine gravity is correct.
+     */
+    public static Builder arm() {
+        return new Builder()
+            .preset(Preset.ARM)
+            .mode(ControlMode.POSITION)
+            .withBrake()
+            .gravityType(GravityType.COSINE)
+            .withStatorCurrentLimit(60.0)
+            .withSupplyCurrentLimit(30.0)
+            .withToleranceDegrees(2.0);
+    }
+
+    /**
+     * Elevators and other straight-line mechanisms gravity pulls on evenly.
+     * Position control, brake, constant gravity, 80 A stator / 30 A supply,
+     * 1 cm tolerance. REQUIRES a drum/sprocket diameter so the motor can work
+     * in meters/inches: {@code .withDrumDiameterMeters(0.05)}.
+     */
+    public static Builder elevator() {
+        return new Builder()
+            .preset(Preset.ELEVATOR)
+            .mode(ControlMode.POSITION)
+            .withBrake()
+            .gravityType(GravityType.CONSTANT)
+            .withStatorCurrentLimit(80.0)
+            .withSupplyCurrentLimit(30.0)
+            .withToleranceMeters(0.01);
+    }
+
+    /**
+     * Anything that moves to an angle without fighting gravity: turrets, hoods,
+     * hoppers. Position control, brake, 60 A stator / 30 A supply, 2° tolerance.
+     */
+    public static Builder position() {
+        return new Builder()
+            .preset(Preset.POSITION)
+            .mode(ControlMode.POSITION)
+            .withBrake()
+            .withStatorCurrentLimit(60.0)
+            .withSupplyCurrentLimit(30.0)
+            .withToleranceDegrees(2.0);
+    }
+
+    /**
+     * A builder pre-filled with every value from {@code original}. Change what
+     * differs, then build:
+     *
+     * <pre>
+     *   LEFT_SHOOTER = MotorConfig.copy(RIGHT_SHOOTER).inverted(true).build();
+     * </pre>
+     */
+    public static Builder copy(MotorConfig original) {
+        return new Builder(original);
+    }
+
+    // =========================================================================
+    // Validation
+    // =========================================================================
+
+    /**
+     * Mistakes that compile fine but break the robot, one plain-English message
+     * each. Empty means the config looks sane. Checked on every build by
+     * {@code MotorConfigConstantsTest} for every MotorConfig in Constants.java.
+     */
+    public List<String> problems() {
+        List<String> problems = new ArrayList<>();
+
+        if (slotNumber < 0 || slotNumber > 2) {
+            problems.add("slot must be 0, 1 or 2 (got " + slotNumber + ").");
+        }
+        if (statorCurrentLimit.in(Amps) <= 0) {
+            problems.add("stator current limit must be positive.");
+        }
+        if (supplyCurrentLimit.in(Amps) <= 0) {
+            problems.add("supply current limit must be positive: it is the brownout protection.");
+        }
+        if (!Double.isNaN(supplyLowerLimitAmps)) {
+            if (supplyLowerLimitAmps <= 0 || supplyLowerLimitAmps > supplyCurrentLimit.in(Amps)) {
+                problems.add("supply lower limit (" + supplyLowerLimitAmps
+                    + " A) must be positive and no higher than the supply limit ("
+                    + supplyCurrentLimit.in(Amps) + " A).");
+            }
+            if (supplyLowerTime <= 0) {
+                problems.add("supply lower limit time must be positive.");
+            }
+        }
+        if (peakForwardVoltage <= 0 || peakReverseVoltage >= 0) {
+            problems.add("voltage limits must be forward > 0 and reverse < 0.");
+        }
+        if (peakForwardTorqueCurrent < 0 || peakReverseTorqueCurrent > 0) {
+            problems.add("peak torque current must be forward >= 0 and reverse <= 0.");
+        }
+        if (feedback.sensorToMechanismRatio() <= 0 || feedback.rotorToSensorRatio() <= 0) {
+            problems.add("gear ratios must be positive (motor turns per mechanism turn).");
+        }
+        if (!Double.isNaN(drumCircumferenceMeters) && drumCircumferenceMeters <= 0) {
+            problems.add("drum diameter must be positive.");
+        }
+        if (preset == Preset.ELEVATOR && Double.isNaN(drumCircumferenceMeters)) {
+            problems.add("elevator() needs a drum/sprocket diameter: "
+                + ".withDrumDiameterMeters(...) or .withDrumDiameterInches(...).");
+        }
+        if ((mode == ControlMode.DUTY_CYCLE || mode == ControlMode.TORQUE)
+                && (kP != 0 || kI != 0 || kD != 0 || kV != 0 || kS != 0 || kA != 0)) {
+            problems.add(mode + " is open-loop, so PID/feedforward gains are ignored. "
+                + "Remove them or use a closed-loop preset.");
+        }
+        if (mode == ControlMode.TORQUE && !enableFOC) {
+            problems.add("TORQUE control needs FOC (Phoenix Pro): add .withFOC().");
+        }
+        if (gravityType != GravityType.NONE && mode != ControlMode.POSITION
+                && mode != ControlMode.MOTION_MAGIC) {
+            problems.add("gravity compensation only works with position control.");
+        }
+        return problems;
+    }
+
+    // =========================================================================
+    // Builder
+    // =========================================================================
+
+    /**
      * Fluent builder for {@link MotorConfig}.
      *
-     * <p>All fields default to safe values (coast mode, no limits enabled, no gains).
-     * Call only the methods relevant to your mechanism, then call {@link #build()}.
+     * <p>Start from a preset ({@link #arm()}, {@link #flywheel()}, ...) or
+     * {@link #builder()}. Every method overrides whatever the preset set.
      */
     public static final class Builder {
 
+        private Preset preset = Preset.CUSTOM;
         private int slotNumber = 0;
 
         private ControlMode mode = ControlMode.DUTY_CYCLE;
@@ -151,9 +378,11 @@ public record MotorConfig(
 
         private Current statorCurrentLimit = Amps.of(120.0);
         private Current supplyCurrentLimit = Amps.of(70.0);
+        private double supplyLowerLimitAmps = Double.NaN;
+        private double supplyLowerTime = 1.0;
 
         // CTRE defaults — 800 A is effectively unlimited.
-        // Only set these when using TorqueCurrentFOC (ControlMode.TORQUE).
+        // Only matters when using TorqueCurrentFOC (ControlMode.TORQUE).
         private double peakForwardTorqueCurrent =  800.0;
         private double peakReverseTorqueCurrent = -800.0;
 
@@ -173,79 +402,112 @@ public record MotorConfig(
         private double sensorToMechanismRatio = 1.0;
         private double rotorOffset = 0.0;
 
-        // ---------------------------
-        // Stall defaults
-        // ---------------------------
+        private double drumCircumferenceMeters = Double.NaN;
+
+        private double toleranceDegrees = Double.NaN;
+        private double toleranceMeters = Double.NaN;
+        private double toleranceRpm = Double.NaN;
+
         private double stallCurrentThreshold = 60.0;   // amps
         private double stallVelocityThreshold = 0.2;   // rotations/sec
         private double stallTimeSeconds = 0.25;        // seconds
 
         private boolean brakeMode = false;
-
         private boolean continuousWrap = false;
-
         private boolean enableFOC = false;
 
         private double simVelocityRps = 0.0;
 
-        // ============================
-        // Builder Methods
-        // ============================
+        private Consumer<TalonFXConfiguration> ctreFxConfig = null;
+        private Consumer<TalonFXSConfiguration> ctreFxsConfig = null;
 
-        /**
-         * Sets the closed-loop control strategy for this motor config.
-         *
-         * <p>Must match the control request used at runtime (e.g. {@code TORQUE} when
-         * calling {@code runTorqueCurrent()}). {@code DUTY_CYCLE} and {@code TORQUE}
-         * skip writing PID/feedforward gains to hardware slots.
-         *
-         * @param m the control mode
-         */
+        private Builder() {}
+
+        /** Copies every field of an existing config (used by {@link MotorConfig#copy}). */
+        private Builder(MotorConfig c) {
+            preset = c.preset;
+            slotNumber = c.slotNumber;
+            mode = c.mode;
+            motorInverted = c.motorInverted;
+            kP = c.kP; kI = c.kI; kD = c.kD;
+            kV = c.kV; kS = c.kS; kA = c.kA;
+            staticFeedforwardSign = c.staticFeedforwardSign;
+            kG = c.kG;
+            gravityType = c.gravityType;
+            peakForwardVoltage = c.peakForwardVoltage;
+            peakReverseVoltage = c.peakReverseVoltage;
+            statorCurrentLimit = c.statorCurrentLimit;
+            supplyCurrentLimit = c.supplyCurrentLimit;
+            supplyLowerLimitAmps = c.supplyLowerLimitAmps;
+            supplyLowerTime = c.supplyLowerTime;
+            peakForwardTorqueCurrent = c.peakForwardTorqueCurrent;
+            peakReverseTorqueCurrent = c.peakReverseTorqueCurrent;
+            forwardLimitEnable = c.forwardLimitEnable;
+            forwardLimitAutosetEnable = c.forwardLimitAutosetEnable;
+            forwardLimitAutosetValue = c.forwardLimitAutosetValue;
+            forwardLimitType = c.forwardLimitType;
+            reverseLimitEnable = c.reverseLimitEnable;
+            reverseLimitAutosetEnable = c.reverseLimitAutosetEnable;
+            reverseLimitAutosetValue = c.reverseLimitAutosetValue;
+            reverseLimitType = c.reverseLimitType;
+            feedbackSource = c.feedback.source();
+            feedbackRemoteId = c.feedback.remoteSensorId();
+            rotorToSensorRatio = c.feedback.rotorToSensorRatio();
+            sensorToMechanismRatio = c.feedback.sensorToMechanismRatio();
+            rotorOffset = c.feedback.rotorOffset();
+            drumCircumferenceMeters = c.drumCircumferenceMeters;
+            toleranceDegrees = c.toleranceDegrees;
+            toleranceMeters = c.toleranceMeters;
+            toleranceRpm = c.toleranceRpm;
+            stallCurrentThreshold = c.stallCurrentThreshold;
+            stallVelocityThreshold = c.stallVelocityThreshold;
+            stallTimeSeconds = c.stallTimeSeconds;
+            brakeMode = c.brakeMode;
+            continuousWrap = c.continuousWrap;
+            enableFOC = c.enableFOC;
+            simVelocityRps = c.simVelocityRps;
+            ctreFxConfig = c.ctreFxConfig;
+            ctreFxsConfig = c.ctreFxsConfig;
+        }
+
+        private Builder preset(Preset p) { this.preset = p; return this; }
+
+        private Builder gravityType(GravityType type) { this.gravityType = type; return this; }
+
+        // ── Basics ──────────────────────────────────────────────────────────
+
+        /** Sets the control strategy. Presets already choose one. */
         public Builder mode(ControlMode m) { this.mode = m; return this; }
 
-        /**
-         * Sets the motor output direction.
-         *
-         * @param inv {@code true} to invert the motor (clockwise positive),
-         *            {@code false} for default (counter-clockwise positive)
-         */
+        /** Reverses the motor's positive direction. */
         public Builder inverted(boolean inv) { this.motorInverted = inv; return this; }
 
         /**
-         * Sets which PID slot this config populates on the motor controller.
-         *
-         * <p>Slot 0 is the default and also owns all base hardware settings
-         * (current limits, neutral mode, feedback sensor, etc.). Slots 1 and 2
-         * carry only gain values.
-         *
-         * @param slot slot index (0, 1, or 2)
+         * PID slot this config fills (0, 1 or 2). Pass several configs to one
+         * motor to use several slots; slot 0 also sets all hardware settings.
          */
-        public Builder slot(int slot) {
-            this.slotNumber = slot; return this;
-        }
+        public Builder slot(int slot) { this.slotNumber = slot; return this; }
+
+        /** Brake when stopped: the motor actively resists motion. */
+        public Builder withBrake() { this.brakeMode = true; return this; }
+
+        /** Coast when stopped: the motor spins freely. */
+        public Builder withCoast() { this.brakeMode = false; return this; }
 
         /**
-         * Sets the PID gains for closed-loop control.
-         *
-         * <p>Ignored for {@code DUTY_CYCLE} and {@code TORQUE} modes.
-         *
-         * @param p proportional gain
-         * @param i integral gain
-         * @param d derivative gain
+         * FOC commutation: about 15% more power and more torque per amp.
+         * <b>Requires a Phoenix Pro license on the motor.</b>
          */
+        public Builder withFOC() { this.enableFOC = true; return this; }
+
+        // ── Gains ───────────────────────────────────────────────────────────
+
+        /** Closed-loop PID gains (volts per unit of error). */
         public Builder withPID(double p, double i, double d) {
             this.kP = p; this.kI = i; this.kD = d; return this;
         }
 
-        /**
-         * Sets the feedforward gains for closed-loop control.
-         *
-         * <p>Ignored for {@code DUTY_CYCLE} and {@code TORQUE} modes.
-         *
-         * @param kS static friction feedforward (volts)
-         * @param kV velocity feedforward (volts per rotation/sec)
-         * @param kA acceleration feedforward (volts per rotation/sec²)
-         */
+        /** Feedforward gains: kS (volts to start moving), kV (volts per rps), kA (volts per rps²). */
         public Builder withFeedforward(double kS, double kV, double kA) {
             this.kS = kS; this.kV = kV; this.kA = kA; return this;
         }
@@ -263,66 +525,103 @@ public record MotorConfig(
         }
 
         /**
-         * Enables gravity compensation for arm or elevator mechanisms.
+         * Gravity feedforward (volts to hold the mechanism against gravity).
+         * The arm and elevator presets already know the gravity type.
          *
-         * @param kG   gravity gain (volts) — tune until the mechanism holds position
-         *             at rest with no other command
-         * @param type compensation shape ({@code COSINE} for arms, {@code CONSTANT}
-         *             for elevators)
+         * @throws IllegalStateException if no gravity type is known yet
+         *     (use {@link #withGravity(double, GravityType)} instead)
          */
+        public Builder withGravity(double kG) {
+            if (gravityType == GravityType.NONE) {
+                throw new IllegalStateException(
+                    "withGravity(kG) needs a gravity type: use arm()/elevator(), "
+                    + "or withGravity(kG, GravityType.COSINE or CONSTANT).");
+            }
+            this.kG = kG; return this;
+        }
+
+        /** Gravity feedforward with an explicit type (COSINE for arms, CONSTANT for elevators). */
         public Builder withGravity(double kG, GravityType type) {
             this.kG = kG; this.gravityType = type; return this;
         }
 
+        // ── Mechanism geometry ───────────────────────────────────────────────
+
         /**
-         * Overrides the peak output voltage in each direction.
-         *
-         * <p>Defaults to ±12 V (full battery). Reduce to soft-cap roller or
-         * conveyor speeds without tuning duty cycle values.
-         *
-         * @param fwd peak forward voltage (positive, volts)
-         * @param rev peak reverse voltage (negative, volts)
+         * Motor turns per mechanism turn (e.g. 50.0 for a 50:1 gearbox). With
+         * this set, positions and speeds are for the mechanism's output shaft,
+         * so Motor1507 works in arm degrees / flywheel RPM, not motor turns.
          */
+        public Builder gearRatio(double motorTurnsPerMechanismTurn) {
+            this.sensorToMechanismRatio = motorTurnsPerMechanismTurn; return this;
+        }
+
+        /**
+         * Drum or sprocket pitch diameter for linear mechanisms (elevators), in
+         * meters. Lets Motor1507 work in meters and inches.
+         */
+        public Builder withDrumDiameterMeters(double diameterMeters) {
+            this.drumCircumferenceMeters = Math.PI * diameterMeters; return this;
+        }
+
+        /** Same as {@link #withDrumDiameterMeters(double)}, in inches. */
+        public Builder withDrumDiameterInches(double diameterInches) {
+            return withDrumDiameterMeters(diameterInches * INCHES_TO_METERS);
+        }
+
+        // ── "At target" tolerances (Motor1507.isAtTarget) ───────────────────
+
+        /** Close enough, in degrees, for position control. */
+        public Builder withToleranceDegrees(double degrees) { this.toleranceDegrees = degrees; return this; }
+
+        /** Close enough, in meters, for linear position control. */
+        public Builder withToleranceMeters(double meters) { this.toleranceMeters = meters; return this; }
+
+        /** Close enough, in inches, for linear position control. */
+        public Builder withToleranceInches(double inches) { return withToleranceMeters(inches * INCHES_TO_METERS); }
+
+        /** Close enough, in RPM, for velocity control. */
+        public Builder withToleranceRPM(double rpm) { this.toleranceRpm = rpm; return this; }
+
+        // ── Limits ──────────────────────────────────────────────────────────
+
+        /** Peak output voltage, forward and reverse (reverse is negative). */
         public Builder withVoltageLimits(double fwd, double rev) {
             this.peakForwardVoltage = fwd; this.peakReverseVoltage = rev; return this;
         }
 
-        /**
-         * Sets the stator (output) current limit.
-         *
-         * <p>Stator current is proportional to torque. Limiting it caps the motor's
-         * peak torque and protects gearboxes from shock loads. Default is 120 A.
-         *
-         * @param statorCurrentLimit maximum stator current
-         */
+        /** Stator (motor-side) current limit in amps. Limits torque and heat. */
+        public Builder withStatorCurrentLimit(double amps) {
+            this.statorCurrentLimit = Amps.of(amps); return this;
+        }
+
+        /** Stator current limit as a WPILib unit (kept for the swerve paste zone). */
         public Builder withStatorCurrentLimit(Current statorCurrentLimit) {
-            this.statorCurrentLimit = statorCurrentLimit;
-            return this;
+            this.statorCurrentLimit = statorCurrentLimit; return this;
         }
 
-        /**
-         * Sets the supply (battery) current limit.
-         *
-         * <p>Supply current is what the battery and breaker see. Limiting it prevents
-         * brownouts under sustained load. Default is 70 A.
-         *
-         * @param supplyCurrentLimit maximum supply current
-         */
+        /** Supply (battery-side) current limit in amps. The main brownout protection. */
+        public Builder withSupplyCurrentLimit(double amps) {
+            this.supplyCurrentLimit = Amps.of(amps); return this;
+        }
+
+        /** Supply current limit as a WPILib unit (kept for the swerve paste zone). */
         public Builder withSupplyCurrentLimit(Current supplyCurrentLimit) {
-            this.supplyCurrentLimit = supplyCurrentLimit;
-            return this;
+            this.supplyCurrentLimit = supplyCurrentLimit; return this;
         }
 
         /**
-         * Sets peak torque current limits for TorqueCurrentFOC mode (Phoenix Pro).
-         *
-         * <p>These caps are applied inside the TalonFX alongside the stator current
-         * limit — whichever is more restrictive wins. Set these to a value slightly
-         * above your commanded torque ({@code TORQUE_AMPS_INTAKE}) as a safety ceiling.
-         * Measure actual current draw on the robot first, then set accordingly.
-         *
-         * @param forwardAmps  max forward stator current (positive, in amps)
-         * @param reverseAmps  max reverse stator current (negative, in amps)
+         * After the supply limit has been limiting for {@code afterSeconds},
+         * drop to {@code amps} until the draw falls below it. Protects the
+         * battery (and breaker) from a jammed or stalled mechanism.
+         */
+        public Builder withSupplyLowerLimit(double amps, double afterSeconds) {
+            this.supplyLowerLimitAmps = amps; this.supplyLowerTime = afterSeconds; return this;
+        }
+
+        /**
+         * Peak torque current (amps) for torque control. Applies together with
+         * the stator limit; the lower one wins.
          */
         public Builder withPeakTorqueCurrent(double forwardAmps, double reverseAmps) {
             this.peakForwardTorqueCurrent = forwardAmps;
@@ -330,14 +629,7 @@ public record MotorConfig(
             return this;
         }
 
-        /**
-         * Configures the forward hardware limit switch.
-         *
-         * @param enable       {@code true} to enable the forward limit switch
-         * @param autoset      {@code true} to automatically zero the sensor position
-         *                     when the forward limit is triggered
-         * @param autosetValue position value to write when auto-zeroing (rotations)
-         */
+        /** Forward hardware limit switch: enable, reset position when hit, position to reset to. */
         public Builder withForwardLimit(boolean enable, boolean autoset, double autosetValue) {
             this.forwardLimitEnable = enable;
             this.forwardLimitAutosetEnable = autoset;
@@ -345,27 +637,12 @@ public record MotorConfig(
             return this;
         }
 
-        /**
-         * Sets whether the forward limit switch is normally open or normally closed.
-         *
-         * <p>Default is {@code NormallyOpen}. Only relevant when the forward limit
-         * is enabled via {@link #withForwardLimit}.
-         *
-         * @param type the limit switch wiring type
-         */
+        /** Forward limit switch wiring (normally open or closed). */
         public Builder forwardLimitType(ForwardLimitTypeValue type) {
-            this.forwardLimitType = type;
-            return this;
+            this.forwardLimitType = type; return this;
         }
 
-        /**
-         * Configures the reverse hardware limit switch.
-         *
-         * @param enable       {@code true} to enable the reverse limit switch
-         * @param autoset      {@code true} to automatically zero the sensor position
-         *                     when the reverse limit is triggered
-         * @param autosetValue position value to write when auto-zeroing (rotations)
-         */
+        /** Reverse hardware limit switch: enable, reset position when hit, position to reset to. */
         public Builder withReverseLimit(boolean enable, boolean autoset, double autosetValue) {
             this.reverseLimitEnable = enable;
             this.reverseLimitAutosetEnable = autoset;
@@ -373,239 +650,113 @@ public record MotorConfig(
             return this;
         }
 
-        /**
-         * Sets whether the reverse limit switch is normally open or normally closed.
-         *
-         * <p>Default is {@code NormallyOpen}. Only relevant when the reverse limit
-         * is enabled via {@link #withReverseLimit}.
-         *
-         * @param type the limit switch wiring type
-         */
+        /** Reverse limit switch wiring (normally open or closed). */
         public Builder reverseLimitType(ReverseLimitTypeValue type) {
-            this.reverseLimitType = type;
-            return this;
+            this.reverseLimitType = type; return this;
         }
 
-        /**
-         * Sets the feedback sensor source for closed-loop control.
-         *
-         * <p>Default is {@code RotorSensor} (the internal TalonFX encoder). Use
-         * {@code RemoteCANcoder} or similar when fusing an external encoder.
-         *
-         * @param source the feedback sensor source
-         */
+        // ── Feedback sensor (advanced) ───────────────────────────────────────
+
+        /** Closed-loop sensor: the motor's own encoder (default), a CANcoder, etc. */
         public Builder withFeedbackSensor(FeedbackSensorSourceValue source) {
-            this.feedbackSource = source;
-            return this;
+            this.feedbackSource = source; return this;
         }
 
-        /**
-         * Sets the CAN ID of a remote feedback sensor (e.g. a CANcoder).
-         *
-         * <p>Only meaningful when {@link #withFeedbackSensor} is set to a remote
-         * source such as {@code RemoteCANcoder} or {@code FusedCANcoder}.
-         *
-         * @param id CAN device ID of the remote sensor
-         */
+        /** CAN ID of the remote feedback sensor. */
         public Builder withRemoteSensorId(int id) {
-            this.feedbackRemoteId = id;
-            return this;
+            this.feedbackRemoteId = id; return this;
         }
 
-        /**
-         * Sets the gear ratio from the motor rotor to the feedback sensor shaft.
-         *
-         * <p>Used when the sensor is not mounted directly on the rotor (e.g. on the
-         * output shaft of a multi-stage gearbox). Default is 1.0 (sensor on rotor).
-         *
-         * @param ratio rotor rotations per sensor rotation
-         */
+        /** Motor turns per sensor turn (used with fused/remote sensors). */
         public Builder withRotorToSensorRatio(double ratio) {
-            this.rotorToSensorRatio = ratio;
-            return this;
+            this.rotorToSensorRatio = ratio; return this;
         }
 
-        /**
-         * Sets the gear ratio from the feedback sensor shaft to the mechanism output.
-         *
-         * <p>Setting this allows position and velocity setpoints to be expressed in
-         * mechanism units (e.g. arm degrees, elevator inches) rather than raw sensor
-         * rotations. Default is 1.0.
-         *
-         * @param ratio sensor rotations per mechanism output rotation
-         */
+        /** Sensor turns per mechanism turn. {@link #gearRatio(double)} sets this for the motor's own encoder. */
         public Builder withSensorToMechanismRatio(double ratio) {
-            this.sensorToMechanismRatio = ratio;
-            return this;
+            this.sensorToMechanismRatio = ratio; return this;
         }
 
-        /**
-         * Applies a fixed offset to the rotor position at startup (rotations).
-         *
-         * <p>Useful for mechanisms with a known home position that differs from
-         * the rotor's power-on reading. Default is 0.0.
-         *
-         * @param offsetRotations rotor position offset in rotations
-         */
+        /** Absolute sensor offset in rotations (TalonFXS external sensors). */
         public Builder withRotorOffset(double offsetRotations) {
-            this.rotorOffset = offsetRotations;
-            return this;
+            this.rotorOffset = offsetRotations; return this;
         }
 
-        // ---------------------------
-        // Stall builder methods
-        // ---------------------------
-
-        /**
-         * Sets the stator current above which the motor is considered loaded for
-         * stall detection purposes.
-         *
-         * <p>Default is 60 A. Tune this above the motor's free-spinning current
-         * but below the current it draws when mechanically jammed.
-         *
-         * @param amps stall current threshold in amps
-         */
-        public Builder withStallCurrentThreshold(double amps) {
-            this.stallCurrentThreshold = amps;
-            return this;
-        }
-
-        /**
-         * Sets the rotor velocity below which the motor is considered not moving for
-         * stall detection purposes.
-         *
-         * <p>Default is 0.2 rotations/sec. Increase if the mechanism moves slowly
-         * under normal load and triggers false stall detections.
-         *
-         * @param rotationsPerSec stall velocity threshold in rotations per second
-         */
-        public Builder withStallVelocityThreshold(double rotationsPerSec) {
-            this.stallVelocityThreshold = rotationsPerSec;
-            return this;
-        }
-
-        /**
-         * Sets how long the stall condition must persist before {@code isStalled()}
-         * returns {@code true}.
-         *
-         * <p>Default is 0.25 seconds. Increase to debounce transient current spikes;
-         * decrease for faster stall detection on sensitive mechanisms.
-         *
-         * @param seconds minimum stall duration in seconds
-         */
-        public Builder withStallTime(double seconds) {
-            this.stallTimeSeconds = seconds;
-            return this;
-        }
-
-        /** Puts the motor in brake mode — rotor actively resists motion when stopped. */
-        public Builder withBrake() {
-            this.brakeMode = true;
-            return this;
-        }
-
-        /** Puts the motor in coast mode — rotor spins freely when stopped. */
-        public Builder withCoast() {
-            this.brakeMode = false;
-            return this;
-        }
-
-        /**
-         * Enables continuous wrap for position closed-loop control.
-         *
-         * <p>When enabled, the controller treats the position as a continuous circle
-         * (e.g. 0–1 rotation) and always takes the shortest path to the target.
-         * Use for mechanisms like swerve steer that can rotate freely.
-         */
+        /** Position wraps around (0 and 1 rotation are the same place). For swerve steering. */
         public Builder withContinuousWrap() {
-            this.continuousWrap = true;
-            return this;
+            this.continuousWrap = true; return this;
         }
 
-        /**
-         * Enables Field Oriented Control (FOC) commutation for this motor's
-         * control requests.
-         *
-         * <p>FOC gives roughly 15% more peak power and more torque per amp than
-         * trapezoidal commutation. <b>Requires a Phoenix Pro license on the
-         * motor.</b> An unlicensed motor reports an UnlicensedFeatureInUse fault
-         * and will not run FOC requests.
-         */
-        public Builder withFOC() {
-            this.enableFOC = true;
-            return this;
+        // ── Stall detection ──────────────────────────────────────────────────
+
+        /** Current (amps) above which the motor may be stalled. */
+        public Builder withStallCurrentThreshold(double amps) {
+            this.stallCurrentThreshold = amps; return this;
         }
 
-        /**
-         * Configures the simulation slew rate for position-controlled motors.
-         *
-         * <p>The motor's simulated position will move toward its target at this speed
-         * (rotations per second) instead of jumping instantly. For velocity and duty
-         * cycle modes, this value scales the simulated velocity proportionally.
-         * Default is 0.0 (instant).
-         *
-         * @param rps simulated slew rate in rotations per second
-         *            (e.g. 0.0833 ≈ 30°/sec with a 1:1 sensor-to-mechanism ratio)
-         */
+        /** Speed (rotations/sec) below which the motor counts as not moving. */
+        public Builder withStallVelocityThreshold(double rotationsPerSec) {
+            this.stallVelocityThreshold = rotationsPerSec; return this;
+        }
+
+        /** How long (seconds) both must hold before it counts as a stall. */
+        public Builder withStallTime(double seconds) {
+            this.stallTimeSeconds = seconds; return this;
+        }
+
+        // ── Simulation ───────────────────────────────────────────────────────
+
+        /** How fast the simulated motor moves toward its target (rotations/sec). */
         public Builder withSimVelocityRps(double rps) {
-            this.simVelocityRps = rps;
-            return this;
+            this.simVelocityRps = rps; return this;
         }
 
-        // ============================
-        // Build
-        // ============================
+        // ── CTRE override (advanced) ─────────────────────────────────────────
 
         /**
-         * Constructs the immutable {@link MotorConfig} from the current builder state.
+         * Direct access to CTRE's TalonFX configuration for anything this class
+         * doesn't cover. Runs LAST, after every setting above, so it wins. You
+         * can paste CTRE examples in unchanged:
          *
-         * @return a fully configured {@code MotorConfig} ready to pass to
-         *         {@link org.team1507.lib.core.impl.ctre.Motor1507}
+         * <pre>
+         *   .withCtreConfig(cfg -> {
+         *       cfg.MotorOutput.PeakForwardDutyCycle = 0.8;
+         *   })
+         * </pre>
          */
+        public Builder withCtreConfig(Consumer<TalonFXConfiguration> override) {
+            this.ctreFxConfig = override; return this;
+        }
+
+        /** Same as {@link #withCtreConfig(Consumer)}, for TalonFXS (Minion) motors. */
+        public Builder withCtreFxsConfig(Consumer<TalonFXSConfiguration> override) {
+            this.ctreFxsConfig = override; return this;
+        }
+
+        // ── Build ────────────────────────────────────────────────────────────
+
+        /** Creates the immutable {@link MotorConfig}. */
         public MotorConfig build() {
             return new MotorConfig(
-                slotNumber,
+                preset, slotNumber,
                 mode, motorInverted,
                 kP, kI, kD,
                 kV, kS, kA,
                 staticFeedforwardSign,
                 kG, gravityType,
                 peakForwardVoltage, peakReverseVoltage,
-
-                statorCurrentLimit,
-                supplyCurrentLimit,
-
-                peakForwardTorqueCurrent,
-                peakReverseTorqueCurrent,
-
-                forwardLimitEnable,
-                forwardLimitAutosetEnable,
-                forwardLimitAutosetValue,
-                forwardLimitType,
-
-                reverseLimitEnable,
-                reverseLimitAutosetEnable,
-                reverseLimitAutosetValue,
-                reverseLimitType,
-
-                new Feedback(
-                    feedbackSource,
-                    feedbackRemoteId,
-                    rotorToSensorRatio,
-                    sensorToMechanismRatio,
-                    rotorOffset
-                ),
-
-                stallCurrentThreshold,
-                stallVelocityThreshold,
-                stallTimeSeconds,
-
-                brakeMode,
-
-                continuousWrap,
-                enableFOC,
-
-                simVelocityRps
+                statorCurrentLimit, supplyCurrentLimit,
+                supplyLowerLimitAmps, supplyLowerTime,
+                peakForwardTorqueCurrent, peakReverseTorqueCurrent,
+                forwardLimitEnable, forwardLimitAutosetEnable, forwardLimitAutosetValue, forwardLimitType,
+                reverseLimitEnable, reverseLimitAutosetEnable, reverseLimitAutosetValue, reverseLimitType,
+                new Feedback(feedbackSource, feedbackRemoteId, rotorToSensorRatio, sensorToMechanismRatio, rotorOffset),
+                drumCircumferenceMeters,
+                toleranceDegrees, toleranceMeters, toleranceRpm,
+                stallCurrentThreshold, stallVelocityThreshold, stallTimeSeconds,
+                brakeMode, continuousWrap, enableFOC,
+                simVelocityRps,
+                ctreFxConfig, ctreFxsConfig
             );
         }
     }

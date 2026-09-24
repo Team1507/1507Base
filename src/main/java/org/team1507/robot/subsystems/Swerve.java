@@ -550,6 +550,14 @@ public final class Swerve extends Subsystem1507 {
         checkQuadrant(problems, "BackLeft",   TunerConstants.kBackLeftXPos,   TunerConstants.kBackLeftYPos,   -1,  1);
         checkQuadrant(problems, "BackRight",  TunerConstants.kBackRightXPos,  TunerConstants.kBackRightYPos,  -1, -1);
 
+        // --- The MotorConfigs built from the paste zone pass the general motor checks.
+        for (String problem : driveConfig(false).problems()) {
+            problems.add("drive motor config: " + problem);
+        }
+        for (String problem : steerConfig(TunerConstants.kFrontLeftEncoderId, false).problems()) {
+            problems.add("steer motor config: " + problem);
+        }
+
         // --- Current limits: supply limits are our brownout protection.
         if (DRIVE_SUPPLY_LIMIT.in(Amps) <= 0.0 || STEER_SUPPLY_LIMIT.in(Amps) <= 0.0) {
             problems.add("Supply current limits must be positive.");
