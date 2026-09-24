@@ -8,368 +8,497 @@
 
 package org.team1507.lib.core.impl.ctre;
 
+import java.util.EnumMap;
+import java.util.Map;
+
+import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.CANBus;
-import com.ctre.phoenix6.controls.ControlRequest;
+import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.DutyCycleOut;
-import com.ctre.phoenix6.controls.PositionDutyCycle;
+import com.ctre.phoenix6.controls.MotionMagicVoltage;
+import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.TorqueCurrentFOC;
 import com.ctre.phoenix6.controls.VelocityVoltage;
+import com.ctre.phoenix6.controls.VoltageOut;
+import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.hardware.TalonFXS;
+import com.ctre.phoenix6.hardware.traits.CommonTalon;
 
 import org.wpilib.framework.RobotBase;
 import org.wpilib.system.Timer;
+import org.wpilib.telemetry.TelemetryLoggable;
+import org.wpilib.telemetry.TelemetryTable;
 
 import org.team1507.lib.core.logging.InputField;
 import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.logging.TelemetryRate;
 import org.team1507.lib.core.util.MotorConfig;
+import org.team1507.lib.core.util.MotorConfig.ControlMode;
 
 /**
- * Unified CTRE motor abstraction for Team 1507.
+ * One CTRE motor (TalonFX / Kraken, or TalonFXS / Minion) for Team 1507.
  *
- * <p>{@code Motor1507} owns motor hardware, control, telemetry, and
- * mechanism‑agnostic stall detection. Configuration is applied declaratively
- * via {@link MotorConfig}.
+ * <p>Students say WHAT they want, in the units they think in, and the motor's
+ * {@link MotorConfig} decides HOW (which CTRE control request, gains, limits):
+ *
+ * <pre>
+ *   arm.setPosition(90);            // degrees, at the output shaft
+ *   shooter.setRPM(3000);           // or setRPS(50)
+ *   elevator.setMeters(0.75);       // or setInches(30), needs a drum diameter
+ *   roller.runCurrent(20);          // amps (torque control)
+ *   roller.runPercent(0.5);         // -1 to 1
+ *   motor.stop();
+ *
+ *   coroutine.waitUntil(arm::isAtTarget);   // uses the config's tolerance
+ *   hopper.resetPosition(0);                // "you are at 0 degrees now"
+ * </pre>
+ *
+ * <p>Reading data: common values have named getters ({@link #getPosition()}
+ * in degrees, {@link #getRPM()}, {@link #getSupplyCurrent()}, ...). Every value
+ * the motor reports is available through {@link #get(MotorSignal)}. For
+ * anything else, {@link #getTalon()} returns the raw CTRE device.
+ *
+ * <p>Positions and speeds are for the mechanism's OUTPUT SHAFT (the config's
+ * {@code gearRatio()} is applied). {@link #getRotorPosition()} and
+ * {@link #getRotorRPM()} are the motor itself, before the gearbox.
+ *
+ * <p>Also provides stall detection ({@link #isStalled()}) and simple simulation.
  */
-public final class Motor1507 {
+public final class Motor1507 implements TelemetryLoggable {
 
     public enum Type { FX, FXS }
 
-    private final Object motor;
-    private final CtreMotorSignals signals;
-    private final String name;
-
-    /** True when control requests use FOC commutation (Phoenix Pro). From slot 0 config. */
-    private final boolean foc;
-
-    // ------------------------------------------------------------
-    // Stall detection fields
-    // ------------------------------------------------------------
-
-    /** Current threshold above which the motor is considered loaded. */
-    private final double stallCurrentThreshold;
-
-    /** Velocity threshold below which the motor is considered not moving. */
-    private final double stallVelocityThreshold;
-
-    /** Minimum duration the stall condition must persist. */
-    private final double stallTimeSeconds;
-
-    /** Timestamp of the last moment the motor was not stalled. */
-    private double lastNotStalledTime;
-
-    /** True when the motor was considered stalled on the previous loop iteration. */
-    private boolean lastStalled = false;
-
-    // ------------------------------------------------------------
-    // Telemetry fields
-    // ------------------------------------------------------------
-
-    public final InputField<Double> rotorPosition;
-    public final InputField<Double> rotorVelocity;
-    public final InputField<Double> supplyCurrent;
-    public final InputField<Double> statorCurrent;
-    public final InputField<Double> motorVoltage;
-    public final InputField<Double> deviceTemp;
-
-    // ------------------------------------------------------------
-    // Simulated Data
-    // ------------------------------------------------------------
-
-    private double simRotorPosition   = 0.0;
-    private double simRotorVelocity   = 0.0;
-    private double simTargetRotations = Double.NaN;
-    private double simTargetVelocity  = Double.NaN;
-    private double simStatorCurrent   = 0.0;
-    private final double simVelocityRps;
-    private double simLastTimestamp = -1.0;
+    // =========================================================================
+    // Signals
+    // =========================================================================
 
     /**
-     * Creates a new motor instance and applies the provided configuration.
+     * Every value the motor reports, in the units students work in. Read any of
+     * them with {@link #get(MotorSignal)}. This is also the list of what the
+     * motor logs.
      *
-     * @param name    human-readable motor name (e.g. "Feeder", "IntakeArm")
-     * @param type    motor hardware type
-     * @param canId   CAN device ID
-     * @param canBus  CAN bus the motor is wired to (SystemCore has several;
-     *                use {@code Constants.CAN_BUS} unless the robot uses more than one)
-     * @param configs motor configuration specifications
+     * <p>Each has a CAN update rate: position and speed are fast (control and
+     * odometry need them), current and voltage are medium (brownout analysis),
+     * and the rest are slow to keep the CAN bus from filling up.
+     */
+    public enum MotorSignal {
+        /** Output-shaft position, degrees. */
+        POSITION("degrees", 100),
+        /** Output-shaft speed, RPM. */
+        VELOCITY("RPM", 100),
+        /** Current drawn from the battery, amps. */
+        SUPPLY_CURRENT("A", 50),
+        /** Current in the motor windings (proportional to torque), amps. */
+        STATOR_CURRENT("A", 50),
+        /** Voltage the motor controller is applying to the motor, volts. */
+        MOTOR_VOLTAGE("V", 50),
+        /** Torque-producing current, amps. */
+        TORQUE_CURRENT("A", 10),
+        /** Output as a fraction of full power, -1 to 1. */
+        DUTY_CYCLE("fraction", 10),
+        /** Motor rotor position, before the gearbox, rotations. */
+        ROTOR_POSITION("rotations", 10),
+        /** Motor rotor speed, before the gearbox, RPM. */
+        ROTOR_VELOCITY("RPM", 10),
+        /** Battery voltage measured at this motor controller, volts. */
+        SUPPLY_VOLTAGE("V", 10),
+        /** Motor controller temperature, °C. */
+        TEMPERATURE("°C", 10),
+        /** Closed-loop target, in CTRE units (mechanism rotations, or rotations/s for velocity). */
+        CLOSED_LOOP_TARGET("CTRE units", 10),
+        /** Closed-loop error, in CTRE units (mechanism rotations, or rotations/s for velocity). */
+        CLOSED_LOOP_ERROR("CTRE units", 10),
+        /** Active faults as a bit field (0 = no faults). */
+        FAULTS("bits", 10),
+        /** Faults that happened since they were last cleared, as a bit field. */
+        STICKY_FAULTS("bits", 10);
+
+        /** Units of the value {@link Motor1507#get(MotorSignal)} returns. */
+        public final String units;
+        /** How often the motor sends this value over CAN (Hz). */
+        public final double updateHz;
+
+        MotorSignal(String units, double updateHz) {
+            this.units = units;
+            this.updateHz = updateHz;
+        }
+    }
+
+    private static final double INCHES_TO_METERS = 0.0254;
+
+    /** Fallback "close enough" when the config doesn't set a tolerance. */
+    private static final double DEFAULT_TOLERANCE_DEGREES = 2.0;
+    private static final double DEFAULT_TOLERANCE_RPM = 50.0;
+
+    // =========================================================================
+    // Fields
+    // =========================================================================
+
+    private final String name;
+    private final ParentDevice device;
+    private final CommonTalon talon;
+    /** Slot 0 config: control mode, units, tolerances, stall and sim settings. */
+    private final MotorConfig config;
+
+    private final Map<MotorSignal, StatusSignal<?>> signals = new EnumMap<>(MotorSignal.class);
+    private final BaseStatusSignal[] allSignals;
+
+    // Control requests are created once and reused (CTRE recommendation; no
+    // garbage created every loop).
+    private final DutyCycleOut dutyRequest;
+    private final VoltageOut voltageRequest;
+    private final TorqueCurrentFOC torqueRequest;
+    private final PositionVoltage positionRequest;
+    private final MotionMagicVoltage motionMagicRequest;
+    private final VelocityVoltage velocityRequest;
+    private final NeutralOut neutralRequest = new NeutralOut();
+
+    // What the motor was last asked to do (for isAtTarget and simulation)
+    private enum Target { NONE, POSITION, VELOCITY }
+    private Target target = Target.NONE;
+    private double targetRotations = 0.0;
+    private double targetRps = 0.0;
+
+    // Stall detection
+    private double lastNotStalledTime;
+    private boolean lastStalled = false;
+
+    // Simulation (mechanism units)
+    private double simPositionRotations = 0.0;
+    private double simVelocityRps = 0.0;
+    private double simStatorCurrent = 0.0;
+
+    // =========================================================================
+    // Construction
+    // =========================================================================
+
+    /**
+     * Creates a motor and applies its configuration.
+     *
+     * @param name    telemetry name, e.g. "Arm/Motor" (Subsystem1507.key("Motor") builds it)
+     * @param type    FX (Kraken / Falcon) or FXS (Minion)
+     * @param canId   CAN ID set in Phoenix Tuner X
+     * @param canBus  CAN bus the motor is wired to (use {@code Constants.CAN_BUS})
+     * @param configs motor configuration; extra configs fill PID slots 1 and 2
      */
     public Motor1507(String name, Type type, int canId, CANBus canBus, MotorConfig... configs) {
         this.name = name;
-        this.motor = createMotor(type, canId, canBus);
-        CtreMotorConfigurator.apply(motor, configs);
+        this.device = switch (type) {
+            case FX  -> new TalonFX(canId, canBus);
+            case FXS -> new TalonFXS(canId, canBus);
+        };
+        this.talon = (CommonTalon) device;
+        CtreMotorConfigurator.apply(device, configs);
+        this.config = configs[0];
 
-        this.signals = CtreMotorSignals.fromMotor(motor);
+        boolean foc = config.enableFOC();
+        dutyRequest        = new DutyCycleOut(0).withEnableFOC(foc);
+        voltageRequest     = new VoltageOut(0).withEnableFOC(foc);
+        torqueRequest      = new TorqueCurrentFOC(0);
+        positionRequest    = new PositionVoltage(0).withEnableFOC(foc);
+        motionMagicRequest = new MotionMagicVoltage(0).withEnableFOC(foc);
+        velocityRequest    = new VelocityVoltage(0).withEnableFOC(foc);
 
-        // Extract stall thresholds and sim config from slot 0
-        MotorConfig base = configs[0];
-        this.stallCurrentThreshold = base.stallCurrentThreshold();
-        this.stallVelocityThreshold = base.stallVelocityThreshold();
-        this.stallTimeSeconds = base.stallTimeSeconds();
-        this.simVelocityRps = base.simVelocityRps();
-        this.foc = base.enableFOC();
+        signals.put(MotorSignal.POSITION,           talon.getPosition(false));
+        signals.put(MotorSignal.VELOCITY,           talon.getVelocity(false));
+        signals.put(MotorSignal.SUPPLY_CURRENT,     talon.getSupplyCurrent(false));
+        signals.put(MotorSignal.STATOR_CURRENT,     talon.getStatorCurrent(false));
+        signals.put(MotorSignal.MOTOR_VOLTAGE,      talon.getMotorVoltage(false));
+        signals.put(MotorSignal.TORQUE_CURRENT,     talon.getTorqueCurrent(false));
+        signals.put(MotorSignal.DUTY_CYCLE,         talon.getDutyCycle(false));
+        signals.put(MotorSignal.ROTOR_POSITION,     talon.getRotorPosition(false));
+        signals.put(MotorSignal.ROTOR_VELOCITY,     talon.getRotorVelocity(false));
+        signals.put(MotorSignal.SUPPLY_VOLTAGE,     talon.getSupplyVoltage(false));
+        signals.put(MotorSignal.TEMPERATURE,        talon.getDeviceTemp(false));
+        signals.put(MotorSignal.CLOSED_LOOP_TARGET, talon.getClosedLoopReference(false));
+        signals.put(MotorSignal.CLOSED_LOOP_ERROR,  talon.getClosedLoopError(false));
+        signals.put(MotorSignal.FAULTS,             talon.getFaultField(false));
+        signals.put(MotorSignal.STICKY_FAULTS,      talon.getStickyFaultField(false));
 
-        // Initialize to now so the stall timer starts from a valid baseline.
-        // Leaving this at 0 would make (now - 0) = robot uptime on the first loop,
-        // immediately triggering a false stall on every motor at boot.
+        // (false) above = don't read the value yet. The device may still be
+        // booting, and an early read just prints a "frame not received" warning.
+        for (MotorSignal s : MotorSignal.values()) {
+            signals.get(s).setUpdateFrequency(s.updateHz);
+        }
+        allSignals = signals.values().toArray(BaseStatusSignal[]::new);
+
+        // Start the stall timer now, so the first loop can't see a false stall.
         this.lastNotStalledTime = Timer.getTimestamp();
 
-        // --------------------------------------------------------
-        // Declare telemetry
-        // --------------------------------------------------------
-
-        rotorPosition = new InputField<>(
-            key("Input", "Position"),
-            this::getRotorPosition,
-            TelemetryRate.NORMAL
-        );
-
-        rotorVelocity = new InputField<>(
-            key("Input", "Velocity"),
-            this::getRotorVelocity,
-            TelemetryRate.FAST
-        );
-
-        supplyCurrent = new InputField<>(
-            key("Input", "SupplyCurrent"),
-            signals::getSupplyCurrent,
-            TelemetryRate.NORMAL
-        );
-
-        statorCurrent = new InputField<>(
-            key("Input", "StatorCurrent"),
-            signals::getStatorCurrent,
-            TelemetryRate.NORMAL
-        );
-
-        motorVoltage = new InputField<>(
-            key("Input", "Voltage"),
-            signals::getMotorVoltage,
-            TelemetryRate.SLOW
-        );
-
-        deviceTemp = new InputField<>(
-            key("Input", "Temperature"),
-            signals::getDeviceTemp,
-            TelemetryRate.SLOW
-        );
-
+        // Telemetry (the logging rework replaces this with logTo())
         Telemetry.register(
-            rotorPosition,
-            rotorVelocity,
-            supplyCurrent,
-            statorCurrent,
-            motorVoltage,
-            deviceTemp
+            new InputField<>(key("PositionDeg"),   this::getPosition,       TelemetryRate.NORMAL),
+            new InputField<>(key("RPM"),           this::getRPM,            TelemetryRate.FAST),
+            new InputField<>(key("SupplyCurrent"), this::getSupplyCurrent,  TelemetryRate.NORMAL),
+            new InputField<>(key("StatorCurrent"), this::getStatorCurrent,  TelemetryRate.NORMAL),
+            new InputField<>(key("Voltage"),       this::getMotorVoltage,   TelemetryRate.SLOW),
+            new InputField<>(key("Temperature"),   this::getTemperature,    TelemetryRate.SLOW)
         );
     }
 
-    // ============================================================
-    // CONTROL
-    // ============================================================
+    // =========================================================================
+    // Commands to the motor
+    // =========================================================================
 
-    private void setControl(ControlRequest request) {
-        if (motor instanceof TalonFX fx) {
-            fx.setControl(request);
-        } else if (motor instanceof TalonFXS fxs) {
-            fxs.setControl(request);
-        }
+    /** Runs at a fraction of full power, -1.0 to 1.0. Open loop. */
+    public void runPercent(double percent) {
+        target = Target.NONE;
+        simVelocityRps = percent * config.simVelocityRps();
+        simStatorCurrent = 0.0;
+        talon.setControl(dutyRequest.withOutput(percent));
     }
 
-    /** Runs the motor at an open-loop duty cycle ({@code -1.0} to {@code +1.0}). */
-    public void runDuty(double dutyCycle) {
-        simTargetVelocity = Double.NaN;
-        simStatorCurrent  = 0.0;
-        simRotorVelocity  = dutyCycle * simVelocityRps;
-        setControl(new DutyCycleOut(dutyCycle).withEnableFOC(foc));
+    /** Applies a voltage, -12 to 12. Open loop. */
+    public void runVoltage(double volts) {
+        target = Target.NONE;
+        simVelocityRps = volts / 12.0 * config.simVelocityRps();
+        simStatorCurrent = 0.0;
+        talon.setControl(voltageRequest.withOutput(volts));
     }
 
     /**
-     * Commands the motor to a target stator current (torque) in amps.
-     *
-     * <p>Requires Phoenix Pro. Unlike {@link #runDuty}, this mode delivers a
-     * fixed torque regardless of mechanical load — current draw does not
-     * increase as back-pressure rises, preventing brownouts on loaded rollers.
-     *
-     * @param amps target stator current; positive = forward, negative = reverse
+     * Pushes with a fixed torque, given as current in amps (positive =
+     * forward). The force stays the same as the load changes, which is why
+     * {@code MotorConfig.roller()} uses it. Requires Phoenix Pro.
      */
-    public void runTorqueCurrent(double amps) {
-        simTargetVelocity = Double.NaN;
-        simStatorCurrent  = amps;
-        simRotorVelocity  = (amps / 20.0) * simVelocityRps;
-        setControl(new TorqueCurrentFOC(amps));
+    public void runCurrent(double amps) {
+        target = Target.NONE;
+        simVelocityRps = (amps / 20.0) * config.simVelocityRps();
+        simStatorCurrent = amps;
+        talon.setControl(torqueRequest.withOutput(amps));
     }
 
-    /** Commands the motor to a target position using duty-cycle closed-loop. */
-    public void setPositionDuty(double rotations) {
-        setControl(new PositionDutyCycle(rotations).withEnableFOC(foc));
+    /** Moves the output shaft to an angle in degrees. */
+    public void setPosition(double degrees) {
+        setPositionRotations(degrees / 360.0);
     }
 
-    /** Commands the motor to a target position using voltage closed-loop. */
-    public void setPositionVoltage(double rotations) {
-        simTargetRotations = rotations;
-        simStatorCurrent   = 0.0;
-        setControl(new PositionVoltage(rotations).withEnableFOC(foc));
+    /**
+     * Moves the output shaft to a position in rotations. Most code should use
+     * {@link #setPosition(double)} (degrees); swerve steering uses this.
+     */
+    public void setPositionRotations(double rotations) {
+        target = Target.POSITION;
+        targetRotations = rotations;
+        simStatorCurrent = 0.0;
+        if (config.mode() == ControlMode.MOTION_MAGIC) {
+            talon.setControl(motionMagicRequest.withPosition(rotations));
+        } else {
+            talon.setControl(positionRequest.withPosition(rotations));
+        }
     }
 
-    /** Commands the motor to a target position using voltage closed-loop with an additional feedforward. */
-    public void setPositionVoltage(double rotations, double ffVolts) {
-        simTargetRotations = rotations;
-        simStatorCurrent   = 0.0;
-        setControl(
-            new PositionVoltage(rotations)
-                .withFeedForward(ffVolts)
-                .withEnableFOC(foc)
-        );
+    /** Moves a linear mechanism (elevator) to a height in meters. Needs a drum diameter. */
+    public void setMeters(double meters) {
+        setPositionRotations(meters / drumCircumferenceMeters());
     }
 
-    /** Commands the motor to a target velocity in rotations per second using voltage closed-loop. */
-    public void setVelocityRPS(double motorRPS) {
-        simTargetVelocity = motorRPS;
-        simStatorCurrent  = 0.0;
-        setControl(new VelocityVoltage(motorRPS).withEnableFOC(foc));
+    /** Moves a linear mechanism (elevator) to a height in inches. Needs a drum diameter. */
+    public void setInches(double inches) {
+        setMeters(inches * INCHES_TO_METERS);
     }
 
-    /** Commands the motor to a target velocity in rotations per second with an additional feedforward. */
-    public void setVelocityRPS(double motorRPS, double ffVolts) {
-        simTargetVelocity = motorRPS;
-        simStatorCurrent  = 0.0;
-        setControl(
-            new VelocityVoltage(motorRPS)
-                .withFeedForward(ffVolts)
-                .withEnableFOC(foc)
-        );
+    /** Spins the output shaft at a speed in RPM. */
+    public void setRPM(double rpm) {
+        setRPS(rpm / 60.0);
     }
 
-    /** Stops the motor and clears any active control request. */
+    /** Spins the output shaft at a speed in rotations per second. */
+    public void setRPS(double rps) {
+        target = Target.VELOCITY;
+        targetRps = rps;
+        simStatorCurrent = 0.0;
+        talon.setControl(velocityRequest.withVelocity(rps));
+    }
+
+    /** Stops the motor. It brakes or coasts according to its config. */
     public void stop() {
-        simRotorVelocity   = 0.0;
-        simTargetVelocity  = Double.NaN;
-        simTargetRotations = Double.NaN;
-        simStatorCurrent   = 0.0;
-        if (motor instanceof TalonFX fx) {
-            fx.stopMotor();
-        } else if (motor instanceof TalonFXS fxs) {
-            fxs.stopMotor();
-        }
+        target = Target.NONE;
+        simVelocityRps = 0.0;
+        simStatorCurrent = 0.0;
+        talon.setControl(neutralRequest);
     }
 
     /**
-     * Advances the simulated velocity toward its target at the configured
-     * {@code simVelocityRps} acceleration rate. Call from the owning subsystem's
-     * {@code simulationPeriodic()} every loop. No-op on real hardware.
-     *
-     * @param dt loop period in seconds (typically 0.02)
+     * Tells the motor where it is now, without moving it: "you are at
+     * {@code degrees}". Use this to zero a mechanism at a hard stop or limit switch.
      */
-    public void simulationPeriodic(double dt) {
-        if (!RobotBase.isSimulation() || Double.isNaN(simTargetVelocity)) return;
-        if (simVelocityRps <= 0.0) {
-            simRotorVelocity = simTargetVelocity;
-            return;
-        }
-        double maxDelta = simVelocityRps * dt;
-        double error    = simTargetVelocity - simRotorVelocity;
-        simRotorVelocity += Math.copySign(Math.min(Math.abs(error), maxDelta), error);
+    public void resetPosition(double degrees) {
+        resetPositionRotations(degrees / 360.0);
     }
 
-    // ============================================================
-    // OBSERVATION
-    // ============================================================
+    /** Same as {@link #resetPosition(double)}, for linear mechanisms, in meters. */
+    public void resetPositionMeters(double meters) {
+        resetPositionRotations(meters / drumCircumferenceMeters());
+    }
 
+    /** Same as {@link #resetPosition(double)}, for linear mechanisms, in inches. */
+    public void resetPositionInches(double inches) {
+        resetPositionMeters(inches * INCHES_TO_METERS);
+    }
+
+    private void resetPositionRotations(double rotations) {
+        simPositionRotations = rotations;
+        talon.setPosition(rotations);
+    }
+
+    // =========================================================================
+    // At target?
+    // =========================================================================
+
+    /**
+     * True when the last {@code setPosition}/{@code setMeters} or
+     * {@code setRPM}/{@code setRPS} target has been reached, within the
+     * tolerance from the config ({@code withToleranceDegrees},
+     * {@code withToleranceMeters}, {@code withToleranceRPM}). False after an
+     * open-loop command ({@code runPercent}, {@code runCurrent}) or {@code stop}.
+     */
+    public boolean isAtTarget() {
+        return switch (target) {
+            case POSITION -> Math.abs(getPositionRotations() - targetRotations) <= positionToleranceRotations();
+            case VELOCITY -> Math.abs(getRPS() - targetRps) * 60.0 <= velocityToleranceRpm();
+            case NONE -> false;
+        };
+    }
+
+    /** The current position target in degrees, or NaN if there isn't one. */
+    public double getTargetPosition() {
+        return target == Target.POSITION ? targetRotations * 360.0 : Double.NaN;
+    }
+
+    /** The current speed target in RPM, or NaN if there isn't one. */
+    public double getTargetRPM() {
+        return target == Target.VELOCITY ? targetRps * 60.0 : Double.NaN;
+    }
+
+    private double positionToleranceRotations() {
+        if (!Double.isNaN(config.toleranceMeters()) && !Double.isNaN(config.drumCircumferenceMeters())) {
+            return config.toleranceMeters() / config.drumCircumferenceMeters();
+        }
+        double degrees = Double.isNaN(config.toleranceDegrees()) ? DEFAULT_TOLERANCE_DEGREES : config.toleranceDegrees();
+        return degrees / 360.0;
+    }
+
+    private double velocityToleranceRpm() {
+        return Double.isNaN(config.toleranceRpm()) ? DEFAULT_TOLERANCE_RPM : config.toleranceRpm();
+    }
+
+    // =========================================================================
+    // Reading data
+    // =========================================================================
+
+    /** Output-shaft position in degrees. */
+    public double getPosition() {
+        return getPositionRotations() * 360.0;
+    }
+
+    /** Output-shaft position in rotations. */
+    public double getPositionRotations() {
+        if (RobotBase.isSimulation()) return simPositionRotations;
+        return signals.get(MotorSignal.POSITION).getValueAsDouble();
+    }
+
+    /** Linear position (elevator height) in meters. Needs a drum diameter. */
+    public double getMeters() {
+        return getPositionRotations() * drumCircumferenceMeters();
+    }
+
+    /** Linear position (elevator height) in inches. Needs a drum diameter. */
+    public double getInches() {
+        return getMeters() / INCHES_TO_METERS;
+    }
+
+    /** Output-shaft speed in RPM. */
+    public double getRPM() {
+        return getRPS() * 60.0;
+    }
+
+    /** Output-shaft speed in rotations per second. */
+    public double getRPS() {
+        if (RobotBase.isSimulation()) return simVelocityRps;
+        return signals.get(MotorSignal.VELOCITY).getValueAsDouble();
+    }
+
+    /** The motor's own rotor position, before the gearbox, in rotations. */
     public double getRotorPosition() {
-        if (RobotBase.isSimulation()) {
-            double now = Timer.getTimestamp();
-            double dt = (simLastTimestamp < 0) ? 0.02 : now - simLastTimestamp;
-            simLastTimestamp = now;
-
-            if (!Double.isNaN(simTargetRotations) && simVelocityRps > 0) {
-                double maxStep = simVelocityRps * dt;
-                double error = simTargetRotations - simRotorPosition;
-                double actualStep = Math.copySign(Math.min(Math.abs(error), maxStep), error);
-                simRotorPosition += actualStep;
-                simRotorVelocity = (dt > 1e-6) ? actualStep / dt : 0.0;
-            } else {
-                simRotorPosition += simRotorVelocity * dt;
-            }
-            return simRotorPosition;
-        }
-        return signals.getRotorPosition();
+        return get(MotorSignal.ROTOR_POSITION);
     }
 
-    public double getRotorVelocity() {
-        if (RobotBase.isSimulation()) {
-            return simRotorVelocity;
-        }
-        return signals.getRotorVelocity();
+    /** The motor's own rotor speed, before the gearbox, in RPM. */
+    public double getRotorRPM() {
+        return get(MotorSignal.ROTOR_VELOCITY);
     }
 
-    /** Returns the motor's supply current in amps. */
+    /** Current drawn from the battery, in amps. */
     public double getSupplyCurrent() {
-        return signals.getSupplyCurrent();
+        return get(MotorSignal.SUPPLY_CURRENT);
     }
 
-    /** Returns the motor's stator current in amps. */
+    /** Current in the motor windings (proportional to torque), in amps. */
     public double getStatorCurrent() {
-        if (RobotBase.isSimulation()) return simStatorCurrent;
-        return signals.getStatorCurrent();
+        return get(MotorSignal.STATOR_CURRENT);
     }
 
-    /** Returns the motor output voltage in volts. */
+    /** Voltage applied to the motor, in volts. */
     public double getMotorVoltage() {
-        return signals.getMotorVoltage();
+        return get(MotorSignal.MOTOR_VOLTAGE);
     }
 
-    /** Returns the motor controller's device temperature in degrees Celsius. */
-    public double getDeviceTemp() {
-        return signals.getDeviceTemp();
+    /** Battery voltage measured at this motor controller, in volts. */
+    public double getSupplyVoltage() {
+        return get(MotorSignal.SUPPLY_VOLTAGE);
     }
 
-    /** Refreshes all CAN status signals for this motor in one bus call. */
-    public void refresh() {
-        signals.refresh();
+    /** Motor controller temperature in °C. */
+    public double getTemperature() {
+        return get(MotorSignal.TEMPERATURE);
     }
 
     /**
-     * Returns the underlying Phoenix 6 hardware device.
+     * Any value the motor reports, in the units listed on {@link MotorSignal}.
      *
-     * <p>Used for CAN bus optimization (e.g., {@code ParentDevice.optimizeBusUtilizationForAll}).
-     * Avoid using the raw device for control — use the methods on this class instead.
+     * <pre>
+     *   double temp  = motor.get(MotorSignal.TEMPERATURE);
+     *   double error = motor.get(MotorSignal.CLOSED_LOOP_ERROR);
+     * </pre>
      */
-    public com.ctre.phoenix6.hardware.ParentDevice getDevice() {
-        return (com.ctre.phoenix6.hardware.ParentDevice) motor;
+    public double get(MotorSignal signal) {
+        return switch (signal) {
+            case POSITION       -> getPosition();
+            case VELOCITY       -> getRPM();
+            case STATOR_CURRENT -> RobotBase.isSimulation() ? simStatorCurrent
+                                   : signals.get(signal).getValueAsDouble();
+            case ROTOR_VELOCITY -> signals.get(signal).getValueAsDouble() * 60.0;
+            default             -> signals.get(signal).getValueAsDouble();
+        };
     }
 
-    /** Returns all tracked status signals for this motor, for use in batched refresh calls. */
-    public com.ctre.phoenix6.BaseStatusSignal[] getSignals() {
-        return signals.getSignals();
+    /** The motor's config (slot 0). */
+    public MotorConfig getConfig() {
+        return config;
     }
+
+    /** The telemetry name, e.g. "Arm/Motor". */
+    public String getName() {
+        return name;
+    }
+
+    // =========================================================================
+    // Stall detection
+    // =========================================================================
 
     /**
-     * Returns whether the motor is physically stalled.
-     *
-     * <p>A stall is defined as:
-     * <ul>
-     *   <li>stator current above the configured threshold</li>
-     *   <li>rotor velocity below the configured threshold</li>
-     *   <li>condition persisting longer than the configured stall time</li>
-     * </ul>
-     *
-     * <p>This method is mechanism‑agnostic and does not interpret the meaning
-     * of a stall. Subsystems should provide semantic interpretation.
-     *
-     * <p><b>Signal freshness:</b> {@code getStatorCurrent()} and {@code getRotorVelocity()}
-     * read from cached CAN signals. Call this only after {@code BaseStatusSignal.refreshAll()}
-     * (or the subsystem's {@code periodic()}) has run, otherwise stall detection
-     * may lag by one 20 ms loop.
-     *
-     * @return true if the motor is stalled
+     * True when the motor is pushing hard but not moving: stator current above
+     * the config's stall current, speed below its stall velocity, for longer
+     * than its stall time. It only DETECTS the stall; your code decides what
+     * to do. Stall start and end are logged as events.
      */
     public boolean isStalled() {
         boolean stalledNow =
-            getStatorCurrent() > stallCurrentThreshold &&
-            Math.abs(getRotorVelocity()) < stallVelocityThreshold;
+            getStatorCurrent() > config.stallCurrentThreshold() &&
+            Math.abs(getRPS()) < config.stallVelocityThreshold();
 
         double now = Timer.getTimestamp();
 
@@ -382,7 +511,7 @@ public final class Motor1507 {
             return false;
         }
 
-        boolean sustained = (now - lastNotStalledTime) > stallTimeSeconds;
+        boolean sustained = (now - lastNotStalledTime) > config.stallTimeSeconds();
 
         if (sustained && !lastStalled) {
             Telemetry.event(name + "/StallStart");
@@ -392,18 +521,105 @@ public final class Motor1507 {
         return sustained;
     }
 
-    // ============================================================
-    // INTERNAL
-    // ============================================================
+    // =========================================================================
+    // CAN signals and the raw device
+    // =========================================================================
 
-    private String key(String category, String field) {
-        return name + "/" + category + "/" + field;
+    /** Refreshes all of this motor's signals in one CAN call. */
+    public void refresh() {
+        BaseStatusSignal.refreshAll(allSignals);
     }
 
-    private static Object createMotor(Type type, int canId, CANBus canBus) {
-        return switch (type) {
-            case FX  -> new TalonFX(canId, canBus);
-            case FXS -> new TalonFXS(canId, canBus);
-        };
+    /** All of this motor's signals, for batching into a larger refreshAll(). */
+    public BaseStatusSignal[] getSignals() {
+        return allSignals;
+    }
+
+    /**
+     * The raw CTRE device, as the interface TalonFX and TalonFXS share. For
+     * anything this class doesn't cover. Prefer the methods above.
+     */
+    public CommonTalon getTalon() {
+        return talon;
+    }
+
+    /** The raw CTRE device as a ParentDevice (for CAN bus optimization). */
+    public ParentDevice getDevice() {
+        return device;
+    }
+
+    // =========================================================================
+    // Simulation
+    // =========================================================================
+
+    /**
+     * Advances the simple simulation by {@code dt} seconds: speed ramps toward
+     * its target, and position moves toward its target at the config's
+     * {@code simVelocityRps}. Call every loop in simulation. No-op on a robot.
+     */
+    public void simulationPeriodic(double dt) {
+        if (!RobotBase.isSimulation()) return;
+        double rate = config.simVelocityRps();
+
+        switch (target) {
+            case POSITION -> {
+                if (rate <= 0.0) {
+                    simPositionRotations = targetRotations;
+                    simVelocityRps = 0.0;
+                } else {
+                    double error = targetRotations - simPositionRotations;
+                    double step = Math.copySign(Math.min(Math.abs(error), rate * dt), error);
+                    simPositionRotations += step;
+                    simVelocityRps = dt > 1e-6 ? step / dt : 0.0;
+                }
+            }
+            case VELOCITY -> {
+                if (rate <= 0.0) {
+                    simVelocityRps = targetRps;
+                } else {
+                    double error = targetRps - simVelocityRps;
+                    simVelocityRps += Math.copySign(Math.min(Math.abs(error), rate * dt), error);
+                }
+                simPositionRotations += simVelocityRps * dt;
+            }
+            case NONE -> simPositionRotations += simVelocityRps * dt;
+        }
+    }
+
+    // =========================================================================
+    // Telemetry
+    // =========================================================================
+
+    /** Logs every {@link MotorSignal} plus the current target and stall state. */
+    @Override
+    public void logTo(TelemetryTable table) {
+        for (MotorSignal s : MotorSignal.values()) {
+            table.log(s.name(), get(s));
+        }
+        table.log("TARGET_POSITION", getTargetPosition());
+        table.log("TARGET_RPM", getTargetRPM());
+        table.log("STALLED", lastStalled);
+    }
+
+    @Override
+    public String getTelemetryType() {
+        return "Motor1507";
+    }
+
+    // =========================================================================
+    // Internal
+    // =========================================================================
+
+    private double drumCircumferenceMeters() {
+        double circumference = config.drumCircumferenceMeters();
+        if (Double.isNaN(circumference)) {
+            throw new IllegalStateException(name + ": meters/inches need a drum diameter in the "
+                + "MotorConfig: .withDrumDiameterMeters(...) or .withDrumDiameterInches(...)");
+        }
+        return circumference;
+    }
+
+    private String key(String field) {
+        return name + "/" + field;
     }
 }

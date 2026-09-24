@@ -92,13 +92,14 @@ public final class SwerveModule1507 {
             azimuthVelocity
         );
 
-        BaseStatusSignal[] driveSignals = drive.getSignals(); // 6
-        BaseStatusSignal[] steerSignals = steer.getSignals(); // 6
-        this.allSignals = new BaseStatusSignal[14];
-        System.arraycopy(driveSignals, 0, allSignals, 0, 6);
-        System.arraycopy(steerSignals, 0, allSignals, 6, 6);
-        allSignals[12] = azimuthPosition;
-        allSignals[13] = azimuthVelocity;
+        // Every drive, steer and CANcoder signal, refreshed together by Swerve.
+        // Built from the motors' own lists, so adding a motor signal can't break it.
+        java.util.List<BaseStatusSignal> signals = new java.util.ArrayList<>();
+        signals.addAll(java.util.List.of(drive.getSignals()));
+        signals.addAll(java.util.List.of(steer.getSignals()));
+        signals.add(azimuthPosition);
+        signals.add(azimuthVelocity);
+        this.allSignals = signals.toArray(BaseStatusSignal[]::new);
 
         Telemetry.set(key("Drive/MetersScale"), driveMetersScale);
         Telemetry.set(key("Initialized"), true);
@@ -133,12 +134,8 @@ public final class SwerveModule1507 {
         double driveRps =
             metersPerSecondToDriveMotorRps(optimized.velocity);
 
-        drive.setVelocityRPS(driveRps);
-
-        steer.setPositionVoltage(
-            targetAngle.getRotations(),
-            0.0
-        );
+        drive.setRPS(driveRps);
+        steer.setPositionRotations(targetAngle.getRotations());
 
         // In sim, instantly snap to the target so getAngle() returns
         // the correct value next loop — simulates a perfect steer controller
@@ -176,7 +173,7 @@ public final class SwerveModule1507 {
      */
     public void brakeToAngle(Rotation2d angle) {
         drive.stop();
-        steer.setPositionVoltage(angle.getRotations(), 0.0);
+        steer.setPositionRotations(angle.getRotations());
 
         if (RobotBase.isSimulation()) {
             simSteerAngleRotations = angle.getRotations();
@@ -290,12 +287,12 @@ public final class SwerveModule1507 {
     // ============================================================
 
     private double correctedDriveMotorRotations() {
-        return drive.getRotorPosition()
+        return drive.getPositionRotations()
             - (azimuthRotations() * math.couplingRatio());
     }
 
     private double correctedDriveMotorRps() {
-        return drive.getRotorVelocity()
+        return drive.getRPS()
             - (azimuthRpsRaw() * math.couplingRatio());
     }
 
