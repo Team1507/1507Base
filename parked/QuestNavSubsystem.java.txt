@@ -6,6 +6,23 @@
 //   ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝
 //                           TEAM 1507 WARLOCKS
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PARKED FOR 2027 — this file is NOT compiled.
+//
+// Why: QuestNav has no WPILib 2027 build yet. Even questnavlib 2026-3.0.0-beta
+// is compiled against the old edu.wpi.first packages, so it cannot load on
+// 2027 / SystemCore. The package rename (edu.wpi.first -> org.wpilib) has
+// already been applied to this file.
+//
+// To restore once QuestNav publishes a 2027 vendordep (expected at kickoff):
+//   1. Install the 2027 questnavlib vendordep (WPILib: Manage Vendor Libraries).
+//   2. Move this file back to
+//        src/main/java/org/team1507/lib/core/vision/QuestNavSubsystem.java
+//   3. Re-add the questNav field and "Set Pose" commands in Robot.java
+//      (search for TODO(QuestNav 2027)).
+//   4. Build and fix anything the new QuestNav API changed.
+// ─────────────────────────────────────────────────────────────────────────────
+
 package org.team1507.lib.core.vision;
 
 import java.util.function.Consumer;

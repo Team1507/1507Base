@@ -17,12 +17,9 @@ import org.wpilib.command2.CommandScheduler;
 import org.wpilib.command2.button.CommandXboxController;
 
 import org.team1507.lib.core.framework.LoggedRobot;
-import org.team1507.lib.core.vision.QuestNavSubsystem;
 import org.team1507.robot.auto.AutoBuilder;
-import org.team1507.robot.auto.nodes.Nodes;
 import org.team1507.robot.auto.routines.*;
 import org.team1507.robot.Constants.RobotMap;
-import org.team1507.robot.Constants.kQuest;
 import org.team1507.robot.Constants.kSwerve;
 import org.team1507.robot.subsystems.*;
 
@@ -32,8 +29,10 @@ public final class Robot extends LoggedRobot {
     // Subsystems
     // -------------------------------------------------------------------------
 
-    public final Swerve            swerve;
-    public final QuestNavSubsystem questNav;
+    public final Swerve swerve;
+
+    // TODO(QuestNav 2027): re-add the QuestNavSubsystem field here when QuestNav
+    // ships a 2027 build. The parked source is in parked/QuestNavSubsystem.java.txt.
 
     // -------------------------------------------------------------------------
     // Controllers
@@ -54,26 +53,13 @@ public final class Robot extends LoggedRobot {
 
     public Robot() {
 
-        // Subsystems — swerve first; questNav takes method references from it.
-        swerve    = new Swerve();
-        questNav  = new QuestNavSubsystem(
-            swerve::addVisionMeasurement,
-            swerve::resetPose,
-            kQuest.ROBOT_TO_QUEST
-        );
+        // Subsystems
+        swerve = new Swerve();
 
-        // Pre-match pose preset buttons (visible in Elastic while disabled).
-        // Place the robot at the known starting position and press the matching
-        // button. The command waits for Quest to confirm before snapping odometry.
-        questNav.setKnownPoseCommand(Nodes.Robot.Start.LEFT)
-            .named("Set Pose Left")
-            .publishToDashboard();
-        questNav.setKnownPoseCommand(Nodes.Robot.Start.CENTER)
-            .named("Set Pose Start")
-            .publishToDashboard();
-        questNav.setKnownPoseCommand(Nodes.Robot.Start.RIGHT)
-            .named("Set Pose Right")
-            .publishToDashboard();
+        // TODO(QuestNav 2027): construct QuestNavSubsystem here, passing
+        // swerve::addVisionMeasurement, swerve::resetPose and kQuest.ROBOT_TO_QUEST,
+        // then re-add the "Set Pose Left/Start/Right" dashboard commands
+        // (questNav.setKnownPoseCommand(Nodes.Robot.Start.X).named(...).publishToDashboard()).
 
         // Autonomous chooser
         AutoBuilder.init(swerve);
