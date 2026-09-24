@@ -10,23 +10,23 @@ package org.team1507.robot.subsystems;
 
 import java.util.function.Supplier;
 
-import edu.wpi.first.math.MathUtil;
-import edu.wpi.first.math.Matrix;
-import edu.wpi.first.math.controller.PIDController;
-import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
-import edu.wpi.first.math.kinematics.*;
-import edu.wpi.first.math.numbers.N1;
-import edu.wpi.first.math.numbers.N3;
-import edu.wpi.first.units.measure.Angle;
-import edu.wpi.first.wpilibj.RobotBase;
-import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj2.command.Command;
+import org.wpilib.math.util.MathUtil;
+import org.wpilib.math.linalg.Matrix;
+import org.wpilib.math.controller.PIDController;
+import org.wpilib.math.estimator.SwerveDrivePoseEstimator;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.kinematics.*;
+import org.wpilib.math.numbers.N1;
+import org.wpilib.math.numbers.N3;
+import org.wpilib.units.measure.Angle;
+import org.wpilib.framework.RobotBase;
+import org.wpilib.system.Timer;
+import org.wpilib.command2.Command;
 
-import static edu.wpi.first.units.Units.Degrees;
-import static edu.wpi.first.units.Units.Rotations;
+import static org.wpilib.units.Units.Degrees;
+import static org.wpilib.units.Units.Rotations;
 
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
@@ -86,7 +86,7 @@ public final class Swerve extends Subsystem1507 {
     // ------------------------------------------------------------
 
     private double simHeadingRadians = 0.0;
-    private ChassisSpeeds lastCommandedSpeeds = new ChassisSpeeds();
+    private ChassisVelocities lastCommandedSpeeds = new ChassisVelocities();
 
     // ------------------------------------------------------------
     // CAN Signal Batch
@@ -188,7 +188,7 @@ public final class Swerve extends Subsystem1507 {
         if (RobotBase.isSimulation()) {
             // Integrate heading before poseEstimator.update() so the heading is fresh.
             // getHeading() reads simHeadingRadians directly in sim — no Pigeon signal needed.
-            simHeadingRadians += lastCommandedSpeeds.omegaRadiansPerSecond * 0.02;
+            simHeadingRadians += lastCommandedSpeeds.omega * 0.02;
         } else {
             BaseStatusSignal.refreshAll(allSignals);
         }
@@ -220,18 +220,18 @@ public final class Swerve extends Subsystem1507 {
     // ============================================================
 
     /**
-     * Drives using field-relative ChassisSpeeds (x = forward, y = left).
+     * Drives using field-relative ChassisVelocities (x = forward, y = left).
      * The kinematics layer converts these to individual module states.
      *
-     * <p>{@code ChassisSpeeds.discretize()} is applied before kinematics to correct
+     * <p>{@code ChassisVelocities.discretize()} is applied before kinematics to correct
      * for the skew that occurs when the robot translates and rotates simultaneously
      * within a single 20 ms loop iteration. Without it, the robot arcs instead of
      * driving in a straight line.
      */
-    public void drive(ChassisSpeeds speeds) {
+    public void drive(ChassisVelocities speeds) {
         lastCommandedSpeeds = speeds;
         SwerveModuleState[] states = kinematics.toSwerveModuleStates(
-            ChassisSpeeds.discretize(speeds, 0.02)
+            ChassisVelocities.discretize(speeds, 0.02)
         );
         SwerveDriveKinematics.desaturateWheelSpeeds(states, maxSpeedMetersPerSecond);
 
@@ -242,16 +242,16 @@ public final class Swerve extends Subsystem1507 {
     }
 
     /**
-     * Drives using robot-relative ChassisSpeeds.
+     * Drives using robot-relative ChassisVelocities.
      * Used by movement commands that already handle the field→robot conversion.
      *
-     * <p>Applies {@code ChassisSpeeds.discretize()} for the same skew correction
-     * as {@link #drive(ChassisSpeeds)}.
+     * <p>Applies {@code ChassisVelocities.discretize()} for the same skew correction
+     * as {@link #drive(ChassisVelocities)}.
      */
-    public void driveRobotRelative(ChassisSpeeds speeds) {
+    public void driveRobotRelative(ChassisVelocities speeds) {
         lastCommandedSpeeds = speeds;
         SwerveModuleState[] states = kinematics.toSwerveModuleStates(
-            ChassisSpeeds.discretize(speeds, 0.02)
+            ChassisVelocities.discretize(speeds, 0.02)
         );
         SwerveDriveKinematics.desaturateWheelSpeeds(states, maxSpeedMetersPerSecond);
 
@@ -263,7 +263,7 @@ public final class Swerve extends Subsystem1507 {
 
     /** Stops all modules immediately. */
     public void stop() {
-        lastCommandedSpeeds = new ChassisSpeeds();
+        lastCommandedSpeeds = new ChassisVelocities();
         frontLeft.stop();
         frontRight.stop();
         backLeft.stop();
@@ -306,17 +306,17 @@ public final class Swerve extends Subsystem1507 {
     }
 
     /** Returns the robot's current robot-relative chassis speeds derived from module states. */
-    public ChassisSpeeds getChassisSpeeds() {
-        return kinematics.toChassisSpeeds(getModuleStates());
+    public ChassisVelocities getChassisVelocities() {
+        return kinematics.toChassisVelocities(getModuleStates());
     }
 
     /**
      * Returns the robot's velocity in field-relative coordinates.
      * Used by maintainHeadingToTarget for motion compensation.
      */
-    public ChassisSpeeds getFieldRelativeSpeeds() {
-        return ChassisSpeeds.fromRobotRelativeSpeeds(
-            kinematics.toChassisSpeeds(getModuleStates()), getHeading()
+    public ChassisVelocities getFieldRelativeSpeeds() {
+        return ChassisVelocities.fromRobotRelativeSpeeds(
+            kinematics.toChassisVelocities(getModuleStates()), getHeading()
         );
     }
 
@@ -389,7 +389,7 @@ public final class Swerve extends Subsystem1507 {
 
     /** Returns true if any drive motor is currently reporting a stall condition. */
     public boolean isAnyDriveStalled() {
-        if (edu.wpi.first.wpilibj.RobotBase.isSimulation()) return false;
+        if (org.wpilib.framework.RobotBase.isSimulation()) return false;
 
         return frontLeft.isDriveStalled()
             || frontRight.isDriveStalled()
@@ -399,7 +399,7 @@ public final class Swerve extends Subsystem1507 {
 
     /** Returns true if any steer motor is currently reporting a stall condition. */
     public boolean isAnySteerStalled() {
-        if (edu.wpi.first.wpilibj.RobotBase.isSimulation()) return false;
+        if (org.wpilib.framework.RobotBase.isSimulation()) return false;
 
         return frontLeft.isSteerStalled()
             || frontRight.isSteerStalled()
@@ -427,7 +427,7 @@ public final class Swerve extends Subsystem1507 {
      */
     private double computeOmega(Rotation2d current, Rotation2d desired) {
         double error = MathUtil.angleModulus(desired.minus(current).getRadians());
-        return MathUtil.clamp(error * HEADING_KP, -maxAngularMetersPerSecond, maxAngularMetersPerSecond);
+        return Math.clamp(error * HEADING_KP, -maxAngularMetersPerSecond, maxAngularMetersPerSecond);
     }
 
     /**
@@ -478,31 +478,31 @@ public final class Swerve extends Subsystem1507 {
 
     /**
      * Default teleop drive command.
-     * Accepts a ChassisSpeeds supplier so Robot.java can compute speeds
+     * Accepts a ChassisVelocities supplier so Robot.java can compute speeds
      * from controller inputs each loop iteration.
      *
      *   swerve.setDefaultCommand(swerve.driveCommand(() -> computeSpeeds()));
      */
-    public Command driveCommand(Supplier<ChassisSpeeds> speeds) {
+    public Command driveCommand(Supplier<ChassisVelocities> speeds) {
         return run(() -> drive(speeds.get()))
             .finallyDo(interrupted -> stop())
             .withName("Swerve.drive");
     }
 
     /**
-     * Drives at fixed ChassisSpeeds. Used by auto commands.
+     * Drives at fixed ChassisVelocities. Used by auto commands.
      */
-    public Command driveCommand(ChassisSpeeds speeds) {
+    public Command driveCommand(ChassisVelocities speeds) {
         return run(() -> drive(speeds))
             .finallyDo(interrupted -> stop())
             .withName("Swerve.driveFixed");
     }
 
     /**
-     * Drives at the given ChassisSpeeds for a fixed number of seconds, then stops.
+     * Drives at the given ChassisVelocities for a fixed number of seconds, then stops.
      * Called by AutoBuilder.driveForTime().
      */
-    public Command driveForTime(ChassisSpeeds speeds, double seconds) {
+    public Command driveForTime(ChassisVelocities speeds, double seconds) {
         return run(() -> drive(speeds))
             .withTimeout(seconds)
             .finallyDo(interrupted -> stop())
@@ -550,7 +550,7 @@ public final class Swerve extends Subsystem1507 {
         return run(() -> {
             Pose2d current     = getPose();
             Rotation2d desired = computeHeadingToTarget(current, targetPose);
-            drive(new ChassisSpeeds(0.0, 0.0,
+            drive(new ChassisVelocities(0.0, 0.0,
                 computeOmega(current.getRotation(), desired)));
         })
         .until(() -> {
@@ -576,7 +576,7 @@ public final class Swerve extends Subsystem1507 {
         return run(() -> {
             Pose2d current     = getPose();
             Rotation2d desired = computeHeadingToTarget(current, targetPoseSupplier.get());
-            drive(new ChassisSpeeds(0.0, 0.0,
+            drive(new ChassisVelocities(0.0, 0.0,
                 computeOmega(current.getRotation(), desired)));
         })
         .until(() -> {
@@ -615,7 +615,7 @@ public final class Swerve extends Subsystem1507 {
     public Command changeHeading(Rotation2d targetHeading) {
         return run(() -> {
             double omega = computeOmega(getPose().getRotation(), targetHeading);
-            drive(new ChassisSpeeds(0.0, 0.0, omega));
+            drive(new ChassisVelocities(0.0, 0.0, omega));
         })
         .until(() ->
             Math.abs(MathUtil.angleModulus(
@@ -659,7 +659,7 @@ public final class Swerve extends Subsystem1507 {
         return run(() -> {
             Pose2d currentPose  = getPose();
             Pose2d targetPose   = targetPoseSupplier.get();
-            ChassisSpeeds field = getFieldRelativeSpeeds();
+            ChassisVelocities field = getFieldRelativeSpeeds();
 
             // Shift the aim point forward in time to compensate for robot motion.
             // If the robot moves right at 2 m/s and lead time is 0.25 s,
@@ -667,8 +667,8 @@ public final class Swerve extends Subsystem1507 {
             // the time the game piece takes to travel to the target.
             Translation2d compensated = targetPose.getTranslation().minus(
                 new Translation2d(
-                    field.vxMetersPerSecond * AIM_LEAD_TIME,
-                    field.vyMetersPerSecond * AIM_LEAD_TIME
+                    field.vx * AIM_LEAD_TIME,
+                    field.vy * AIM_LEAD_TIME
                 )
             );
 
@@ -679,7 +679,7 @@ public final class Swerve extends Subsystem1507 {
             double omega = computeOmega(currentPose.getRotation(), desiredHeading);
             // xSupplier / ySupplier are field-relative — convert to robot-relative
             // before passing to drive() so translation is correct at any heading.
-            drive(ChassisSpeeds.fromFieldRelativeSpeeds(
+            drive(ChassisVelocities.fromFieldRelativeSpeeds(
                 xSupplier.get(), ySupplier.get(), omega, currentPose.getRotation()
             ));
         })
@@ -711,7 +711,7 @@ public final class Swerve extends Subsystem1507 {
             Pose2d p = getPose();
             stall[0] = p.getX();
             stall[1] = p.getY();
-            stall[2] = Timer.getFPGATimestamp();
+            stall[2] = Timer.getTimestamp();
         })
         .andThen(run(() -> {
             Pose2d current     = getPose();
@@ -725,7 +725,7 @@ public final class Swerve extends Subsystem1507 {
             double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
             double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
 
-            driveRobotRelative(ChassisSpeeds.fromFieldRelativeSpeeds(
+            driveRobotRelative(ChassisVelocities.fromFieldRelativeSpeeds(
                 ux * apfSpeed, uy * apfSpeed,
                 computeOmega(heading, targetPose.getRotation()),
                 heading
@@ -737,7 +737,7 @@ public final class Swerve extends Subsystem1507 {
             if (moveDx > STALL_THRESHOLD || moveDy > STALL_THRESHOLD) {
                 stall[0] = current.getX();
                 stall[1] = current.getY();
-                stall[2] = Timer.getFPGATimestamp();
+                stall[2] = Timer.getTimestamp();
             }
         }))
         .until(() -> {
@@ -748,7 +748,7 @@ public final class Swerve extends Subsystem1507 {
             double dy = Math.abs(current.getY() - stall[1]);
             return dx < STALL_THRESHOLD
                 && dy < STALL_THRESHOLD
-                && (Timer.getFPGATimestamp() - stall[2]) > STALL_TIMEOUT;
+                && (Timer.getTimestamp() - stall[2]) > STALL_TIMEOUT;
         })
         .finallyDo(interrupted -> { if (stopAtEnd) stop(); })
         .withName("Swerve.driveToPoint");
@@ -790,7 +790,7 @@ public final class Swerve extends Subsystem1507 {
             Pose2d p = getPose();
             stall[0] = p.getX();
             stall[1] = p.getY();
-            stall[2] = Timer.getFPGATimestamp();
+            stall[2] = Timer.getTimestamp();
             stall[3] = stall[2]; // wall-clock start for hard deadline
             thetaPID.reset();
         })
@@ -805,7 +805,7 @@ public final class Swerve extends Subsystem1507 {
             double dirY     = dy / (distance + 1e-9);
 
             // PID rotation toward target heading, clamped to maxAngular
-            double omega = MathUtil.clamp(
+            double omega = Math.clamp(
                 thetaPID.calculate(
                     current.getRotation().getRadians(),
                     targetPose.getRotation().getRadians()
@@ -813,7 +813,7 @@ public final class Swerve extends Subsystem1507 {
                 -maxAngular, maxAngular
             );
 
-            driveRobotRelative(ChassisSpeeds.fromFieldRelativeSpeeds(
+            driveRobotRelative(ChassisVelocities.fromFieldRelativeSpeeds(
                 dirX * maxSpeed, dirY * maxSpeed, omega, current.getRotation()
             ));
 
@@ -823,7 +823,7 @@ public final class Swerve extends Subsystem1507 {
             if (moveDx > STALL_THRESHOLD || moveDy > STALL_THRESHOLD) {
                 stall[0] = current.getX();
                 stall[1] = current.getY();
-                stall[2] = Timer.getFPGATimestamp();
+                stall[2] = Timer.getTimestamp();
             }
         }))
         .until(() -> {
@@ -837,11 +837,11 @@ public final class Swerve extends Subsystem1507 {
             double dx = Math.abs(current.getX() - stall[0]);
             double dy = Math.abs(current.getY() - stall[1]);
             if (dx < STALL_THRESHOLD && dy < STALL_THRESHOLD
-                    && (Timer.getFPGATimestamp() - stall[2]) > STALL_TIMEOUT)
+                    && (Timer.getTimestamp() - stall[2]) > STALL_TIMEOUT)
                 return true;
 
             // Done: hard wall-clock deadline — catches oscillation that keeps resetting the stall timer
-            return (Timer.getFPGATimestamp() - stall[3]) > MAX_MOVETHROUGH_SECONDS;
+            return (Timer.getTimestamp() - stall[3]) > MAX_MOVETHROUGH_SECONDS;
         })
         .finallyDo(interrupted -> stop())
         .withName("Swerve.moveThroughPose");
@@ -894,7 +894,7 @@ public final class Swerve extends Subsystem1507 {
             double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
             double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
 
-            driveRobotRelative(ChassisSpeeds.fromFieldRelativeSpeeds(
+            driveRobotRelative(ChassisVelocities.fromFieldRelativeSpeeds(
                 ux * apfSpeed, uy * apfSpeed,
                 computeOmega(hdg, target[0].getRotation()),
                 hdg

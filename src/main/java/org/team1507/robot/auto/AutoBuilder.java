@@ -57,7 +57,7 @@ public final class AutoBuilder {
             com.pathplanner.lib.auto.AutoBuilder.configure(
                 swerve::getPose,
                 swerve::resetPose,
-                swerve::getChassisSpeeds,
+                swerve::getChassisVelocities,
                 (speeds, feedforwards) -> swerve.driveRobotRelative(speeds),
                 new PPHolonomicDriveController(
                     new PIDConstants(5.0, 0.0, 0.0),  // translation PID — tune in sim

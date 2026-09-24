@@ -6,9 +6,9 @@
 //   ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝
 //                           TEAM 1507 WARLOCKS
 
-package edu.wpi.first.wpilibj.commands.subsystem1507;
+package org.wpilib.commands.subsystem1507;
 
-import edu.wpi.first.wpilibj2.command.Command;
+import org.wpilib.command2.Command;
 import org.team1507.lib.core.framework.Subsystem1507;
 
 public class ReplaceMeSubsystem1507 extends Subsystem1507 {

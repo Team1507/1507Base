@@ -17,8 +17,8 @@ import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.hardware.TalonFXS;
 
-import edu.wpi.first.wpilibj.RobotBase;
-import edu.wpi.first.wpilibj.Timer;
+import org.wpilib.framework.RobotBase;
+import org.wpilib.system.Timer;
 
 import org.team1507.lib.core.logging.InputField;
 import org.team1507.lib.core.logging.Telemetry;
@@ -107,7 +107,7 @@ public final class Motor1507 {
         // Initialize to now so the stall timer starts from a valid baseline.
         // Leaving this at 0 would make (now - 0) = robot uptime on the first loop,
         // immediately triggering a false stall on every motor at boot.
-        this.lastNotStalledTime = Timer.getFPGATimestamp();
+        this.lastNotStalledTime = Timer.getTimestamp();
 
         // --------------------------------------------------------
         // Declare telemetry
@@ -271,7 +271,7 @@ public final class Motor1507 {
 
     public double getRotorPosition() {
         if (RobotBase.isSimulation()) {
-            double now = Timer.getFPGATimestamp();
+            double now = Timer.getTimestamp();
             double dt = (simLastTimestamp < 0) ? 0.02 : now - simLastTimestamp;
             simLastTimestamp = now;
 
@@ -362,7 +362,7 @@ public final class Motor1507 {
             getStatorCurrent() > stallCurrentThreshold &&
             Math.abs(getRotorVelocity()) < stallVelocityThreshold;
 
-        double now = Timer.getFPGATimestamp();
+        double now = Timer.getTimestamp();
 
         if (!stalledNow) {
             if (lastStalled) {

@@ -8,13 +8,13 @@
 
 package org.team1507.lib.core.util;
 
-import static edu.wpi.first.units.Units.Amps;
+import static org.wpilib.units.Units.Amps;
 
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 import com.ctre.phoenix6.signals.ForwardLimitTypeValue;
 import com.ctre.phoenix6.signals.ReverseLimitTypeValue;
 
-import edu.wpi.first.units.measure.Current;
+import org.wpilib.units.measure.Current;
 
 /**
  * Declarative motor configuration for {@link org.team1507.lib.core.impl.ctre.Motor1507}.

@@ -8,10 +8,10 @@
 
 package org.team1507.lib.core.util;
 
-import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Subsystem;
+import org.wpilib.system.Timer;
+import org.wpilib.smartdashboard.SmartDashboard;
+import org.wpilib.command2.Command;
+import org.wpilib.command2.Subsystem;
 
 import java.util.function.BooleanSupplier;
 
@@ -284,7 +284,7 @@ public class CommandBuilder extends Command {
     public void initialize() {
         timedOut = false;
         stalled = false;
-        startTime = Timer.getFPGATimestamp();
+        startTime = Timer.getTimestamp();
 
         // Telemetry: command start
         String base = "Command/" + getName();
@@ -301,7 +301,7 @@ public class CommandBuilder extends Command {
 
     @Override
     public void end(boolean interrupted) {
-        double endTime = Timer.getFPGATimestamp();
+        double endTime = Timer.getTimestamp();
         String base = "Command/" + getName();
 
         // Telemetry: command end
@@ -325,7 +325,7 @@ public class CommandBuilder extends Command {
 
         // Timeout check
         if (timeoutSeconds >= 0) {
-            double elapsed = Timer.getFPGATimestamp() - startTime;
+            double elapsed = Timer.getTimestamp() - startTime;
             if (elapsed >= timeoutSeconds) {
                 timedOut = true;
                 return true;

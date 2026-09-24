@@ -8,8 +8,8 @@
 
 package org.team1507.lib.core.impl.ctre;
 
-import static edu.wpi.first.units.Units.Amps;
-import static edu.wpi.first.units.Units.Volts;
+import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Volts;
 
 import com.ctre.phoenix6.configs.*;
 import com.ctre.phoenix6.hardware.TalonFX;

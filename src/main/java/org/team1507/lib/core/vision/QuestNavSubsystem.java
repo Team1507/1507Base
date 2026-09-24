@@ -10,10 +10,10 @@ package org.team1507.lib.core.vision;
 
 import java.util.function.Consumer;
 
-import edu.wpi.first.math.VecBuilder;
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Transform3d;
+import org.wpilib.math.linalg.VecBuilder;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Pose3d;
+import org.wpilib.math.geometry.Transform3d;
 import gg.questnav.questnav.PoseFrame;
 import gg.questnav.questnav.QuestNav;
 

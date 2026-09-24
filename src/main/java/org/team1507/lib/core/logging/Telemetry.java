@@ -8,12 +8,12 @@
 
 package org.team1507.lib.core.logging;
 
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.networktables.StructPublisher;
-import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.math.kinematics.SwerveModuleState;
-import edu.wpi.first.networktables.StructArrayPublisher;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.networktables.NetworkTableInstance;
+import org.wpilib.networktables.StructPublisher;
+import org.wpilib.system.Timer;
+import org.wpilib.math.kinematics.SwerveModuleState;
+import org.wpilib.networktables.StructArrayPublisher;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -192,7 +192,7 @@ public final class Telemetry {
      * @param key NetworkTables key
      */
     public static void event(String key) {
-        set(key, Timer.getFPGATimestamp());
+        set(key, Timer.getTimestamp());
     }
 
     // -------------------------------------------------------------------------
@@ -206,7 +206,7 @@ public final class Telemetry {
      * {@code robotPeriodic}). Each telemetry rate is evaluated independently.
      */
     public static void update() {
-        double now = Timer.getFPGATimestamp();
+        double now = Timer.getTimestamp();
 
         for (TelemetryRate rate : TelemetryRate.values()) {
             double last = lastUpdateTime.getOrDefault(rate, 0.0);

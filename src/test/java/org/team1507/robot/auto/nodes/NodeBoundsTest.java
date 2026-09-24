@@ -11,8 +11,8 @@ package org.team1507.robot.auto.nodes;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Translation2d;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Translation2d;
 
 import org.junit.jupiter.api.Test;
 import org.team1507.robot.Constants.kSwerve;

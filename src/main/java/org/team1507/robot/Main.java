@@ -8,7 +8,7 @@
 
 package org.team1507.robot;
 
-import edu.wpi.first.wpilibj.RobotBase;
+import org.wpilib.framework.RobotBase;
 
 public final class Main {
   private Main() {}

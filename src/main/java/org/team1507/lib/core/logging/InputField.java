@@ -8,8 +8,8 @@
 
 package org.team1507.lib.core.logging;
 
-import edu.wpi.first.networktables.NetworkTableEntry;
-import edu.wpi.first.networktables.NetworkTableInstance;
+import org.wpilib.networktables.NetworkTableEntry;
+import org.wpilib.networktables.NetworkTableInstance;
 
 import java.util.Objects;
 import java.util.function.Supplier;

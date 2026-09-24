@@ -8,9 +8,13 @@
 
 package org.team1507.lib.core.framework;
 
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.driverstation.MatchState;
+import org.wpilib.driverstation.RobotState;
+import org.wpilib.driverstation.Alliance;
+import org.wpilib.driverstation.MatchType;
+import org.wpilib.driverstation.DriverStationErrors;
+import org.wpilib.command2.SubsystemBase;
 
 import org.team1507.lib.core.logging.Telemetry;
 
@@ -144,7 +148,7 @@ public abstract class Subsystem1507 extends SubsystemBase {
      * @param message description of the warning condition
      */
     protected void warn(String message) {
-        DriverStation.reportWarning("[" + getName() + "] " + message, false);
+        DriverStationErrors.reportWarning("[" + getName() + "] " + message, false);
     }
 
     /**
@@ -163,6 +167,6 @@ public abstract class Subsystem1507 extends SubsystemBase {
      * @param message description of the fault condition
      */
     protected void fault(String message) {
-        DriverStation.reportError("[" + getName() + "] " + message, false);
+        DriverStationErrors.reportError("[" + getName() + "] " + message, false);
     }
 }

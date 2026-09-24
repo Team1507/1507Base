@@ -8,13 +8,13 @@
 
 package org.team1507.robot;
 
-import edu.wpi.first.math.MathUtil;
-import edu.wpi.first.math.kinematics.ChassisSpeeds;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.CommandScheduler;
-import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
+import org.wpilib.math.util.MathUtil;
+import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.smartdashboard.SendableChooser;
+import org.wpilib.smartdashboard.SmartDashboard;
+import org.wpilib.command2.Command;
+import org.wpilib.command2.CommandScheduler;
+import org.wpilib.command2.button.CommandXboxController;
 
 import org.team1507.lib.core.framework.LoggedRobot;
 import org.team1507.lib.core.vision.QuestNavSubsystem;
@@ -113,7 +113,7 @@ public final class Robot extends LoggedRobot {
                 double y   = MathUtil.applyDeadband(-driver.getLeftX(),  0.12);
                 double rot = MathUtil.applyDeadband(-driver.getRightX(), 0.12);
 
-                return ChassisSpeeds.fromFieldRelativeSpeeds(
+                return ChassisVelocities.fromFieldRelativeSpeeds(
                     x   * kSwerve.MAX_SPEED,
                     y   * kSwerve.MAX_SPEED,
                     rot * Math.PI,

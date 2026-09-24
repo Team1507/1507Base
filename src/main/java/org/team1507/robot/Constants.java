@@ -8,9 +8,9 @@
 
 package org.team1507.robot;
 
-import static edu.wpi.first.units.Units.Amps;
-import static edu.wpi.first.units.Units.Inches;
-import static edu.wpi.first.units.Units.MetersPerSecond;
+import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Inches;
+import static org.wpilib.units.Units.MetersPerSecond;
 
 import org.team1507.lib.core.util.MotorConfig;
 import org.team1507.lib.core.util.MotorConfig.ControlMode;
@@ -18,15 +18,15 @@ import org.team1507.lib.core.util.MotorConfig.ControlMode;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 
-import edu.wpi.first.math.Matrix;
-import edu.wpi.first.math.VecBuilder;
-import edu.wpi.first.math.geometry.Rotation3d;
-import edu.wpi.first.math.geometry.Transform3d;
-import edu.wpi.first.math.geometry.Translation2d;
-import edu.wpi.first.math.numbers.N1;
-import edu.wpi.first.math.numbers.N3;
-import edu.wpi.first.units.measure.Current;
-import edu.wpi.first.units.measure.LinearVelocity;
+import org.wpilib.math.linalg.Matrix;
+import org.wpilib.math.linalg.VecBuilder;
+import org.wpilib.math.geometry.Rotation3d;
+import org.wpilib.math.geometry.Transform3d;
+import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.numbers.N1;
+import org.wpilib.math.numbers.N3;
+import org.wpilib.units.measure.Current;
+import org.wpilib.units.measure.LinearVelocity;
 
 public class Constants {
 

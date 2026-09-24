@@ -8,8 +8,8 @@
 
 package org.team1507.robot.auto.routines;
 
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.wpilibj2.command.Command;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.command2.Command;
 
 import org.team1507.robot.auto.AutoSequence;
 

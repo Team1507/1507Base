@@ -8,8 +8,8 @@
 
 package org.team1507.robot.auto;
 
-import static edu.wpi.first.units.Units.RadiansPerSecond;
-import static edu.wpi.first.units.Units.RotationsPerSecond;
+import static org.wpilib.units.Units.RadiansPerSecond;
+import static org.wpilib.units.Units.RotationsPerSecond;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,10 +17,10 @@ import java.util.function.BooleanSupplier;
 
 import com.pathplanner.lib.path.PathPlannerPath;
 
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Commands;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.system.Timer;
+import org.wpilib.command2.Command;
+import org.wpilib.command2.Commands;
 
 import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.util.Alliance;

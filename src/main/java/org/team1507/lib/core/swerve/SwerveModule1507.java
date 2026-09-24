@@ -8,19 +8,19 @@
 
 package org.team1507.lib.core.swerve;
 
-import static edu.wpi.first.units.Units.*;
+import static org.wpilib.units.Units.*;
 
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.hardware.CANcoder;
 import com.ctre.phoenix6.sim.CANcoderSimState;
 
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.kinematics.SwerveModulePosition;
-import edu.wpi.first.math.kinematics.SwerveModuleState;
-import edu.wpi.first.units.measure.Angle;
-import edu.wpi.first.units.measure.AngularVelocity;
-import edu.wpi.first.wpilibj.RobotBase;
+import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.kinematics.SwerveModulePosition;
+import org.wpilib.math.kinematics.SwerveModuleState;
+import org.wpilib.units.measure.Angle;
+import org.wpilib.units.measure.AngularVelocity;
+import org.wpilib.framework.RobotBase;
 
 import org.team1507.lib.core.impl.ctre.Motor1507;
 import org.team1507.lib.core.logging.Telemetry;
@@ -111,19 +111,19 @@ public final class SwerveModule1507 {
     public void setDesiredState(SwerveModuleState desired) {
         Rotation2d current = getAngle();
         SwerveModuleState optimized = new SwerveModuleState(
-            desired.speedMetersPerSecond,
+            desired.velocity,
             desired.angle
         );
 
         optimized.optimize(current);
 
         Rotation2d targetAngle =
-            Math.abs(optimized.speedMetersPerSecond) < 0.01
+            Math.abs(optimized.velocity) < 0.01
                 ? lastAngle
                 : optimized.angle;
 
         double driveRps =
-            metersPerSecondToDriveMotorRps(optimized.speedMetersPerSecond);
+            metersPerSecondToDriveMotorRps(optimized.velocity);
 
         drive.setVelocityRPS(driveRps);
 
@@ -141,7 +141,7 @@ public final class SwerveModule1507 {
 
         lastAngle = targetAngle;
 
-        Telemetry.set(key("Drive/TargetMps"), optimized.speedMetersPerSecond);
+        Telemetry.set(key("Drive/TargetMps"), optimized.velocity);
         Telemetry.set(key("Drive/TargetMotorRps"), driveRps);
         Telemetry.set(key("Steer/TargetAngleRad"), targetAngle.getRadians());
     }
