@@ -8,21 +8,22 @@
 
 package org.team1507.robot;
 
-import org.wpilib.math.util.MathUtil;
-import org.wpilib.math.kinematics.ChassisVelocities;
-import org.wpilib.smartdashboard.SendableChooser;
-import org.wpilib.smartdashboard.SmartDashboard;
-import org.wpilib.command2.Command;
-import org.wpilib.command2.CommandScheduler;
-import org.wpilib.command2.button.CommandXboxController;
+import org.wpilib.command2.button.CommandGamepad;
 
 import org.team1507.lib.core.framework.LoggedRobot;
 import org.team1507.robot.auto.AutoBuilder;
-import org.team1507.robot.auto.routines.*;
 import org.team1507.robot.Constants.RobotMap;
-import org.team1507.robot.Constants.kSwerve;
 import org.team1507.robot.subsystems.*;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Robot
+//
+// Holds everything shared by all OpModes: subsystems, controllers, and the
+// driver button bindings. What the robot DOES in each mode lives in OpMode
+// classes, which WPILib finds automatically and lists in the Driver Station:
+//   - Autonomous: robot/auto/routines/  (@Autonomous, extend AutoOpMode)
+//   - Teleop:     robot/teleop/         (@Teleop)
+// ─────────────────────────────────────────────────────────────────────────────
 public final class Robot extends LoggedRobot {
 
     // -------------------------------------------------------------------------
@@ -38,14 +39,7 @@ public final class Robot extends LoggedRobot {
     // Controllers
     // -------------------------------------------------------------------------
 
-    private final CommandXboxController driver;
-
-    // -------------------------------------------------------------------------
-    // Autonomous
-    // -------------------------------------------------------------------------
-
-    private Command m_autoCommand = null;
-    private final SendableChooser<Command> autoChooser = new SendableChooser<>();
+    public final CommandGamepad driver;
 
     // =========================================================================
     // Constructor
@@ -61,19 +55,20 @@ public final class Robot extends LoggedRobot {
         // then re-add the "Set Pose Left/Start/Right" dashboard commands
         // (questNav.setKnownPoseCommand(Nodes.Robot.Start.X).named(...).publishToDashboard()).
 
-        // Autonomous chooser
+        // Give auto routines access to the subsystems
         AutoBuilder.init(swerve);
-        autoChooser.setDefaultOption("Drive Forward", DriveForwardAuto.build());
-        SmartDashboard.putData("Auto Mode", autoChooser);
 
         // Controllers and bindings
-        driver = new CommandXboxController(RobotMap.DRIVER_CONTROLLER);
+        driver = new CommandGamepad(RobotMap.DRIVER_CONTROLLER);
         configureBindings();
-        configureDefaultBindings();
     }
 
     // =========================================================================
     // Bindings
+    //
+    // Bindings made here work in every mode. Keep them here, not in OpModes:
+    // with Commands v2 a binding is never removed, so an OpMode that binds
+    // buttons would add a duplicate each time it is selected.
     // =========================================================================
 
     private void configureBindings() {
@@ -86,45 +81,9 @@ public final class Robot extends LoggedRobot {
         // Failsafe — cancels all running commands (see RobotBehaviors for details)
         driver.back().onTrue(RobotBehaviors.failsafe());
 
-        // Point the robot toward the opposing alliance wall, then press A
-        // to zero the gyro. Do this after any hot code deploy without a power cycle.
-        driver.a().onTrue(swerve.zeroHeadingCommand());
-    }
-
-    private void configureDefaultBindings() {
-
-        swerve.setDefaultCommand(
-            swerve.driveCommand(() -> {
-                double x   = MathUtil.applyDeadband(-driver.getLeftY(),  0.12);
-                double y   = MathUtil.applyDeadband(-driver.getLeftX(),  0.12);
-                double rot = MathUtil.applyDeadband(-driver.getRightX(), 0.12);
-
-                return ChassisVelocities.fromFieldRelativeSpeeds(
-                    x   * kSwerve.MAX_SPEED,
-                    y   * kSwerve.MAX_SPEED,
-                    rot * Math.PI,
-                    swerve.getHeading()
-                );
-            })
-        );
-    }
-
-    // =========================================================================
-    // Mode callbacks
-    // =========================================================================
-
-    @Override
-    public void autonomousInit() {
-        m_autoCommand = autoChooser.getSelected();
-        if (m_autoCommand != null) {
-            CommandScheduler.getInstance().schedule(m_autoCommand);
-        }
-    }
-
-    @Override
-    public void teleopInit() {
-        if (m_autoCommand != null) {
-            m_autoCommand.cancel();
-        }
+        // Point the robot toward the opposing alliance wall, then press the bottom
+        // face button (A on Xbox) to zero the gyro. Do this after any hot code
+        // deploy without a power cycle.
+        driver.faceDown().onTrue(swerve.zeroHeadingCommand());
     }
 }
