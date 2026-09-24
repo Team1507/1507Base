@@ -76,7 +76,7 @@ Each `Motor1507` now reports 15 signals (position/velocity at 100 Hz, current/vo
 
 #### M-3. Simulation doesn't run the real control path
 `SwerveModule1507` keeps its own fake drive/steer model, and `Motor1507` has a simple "move toward target" model. Neither exercises CTRE's control loop, gains or current limits, so sim can't catch tuning or current-limit mistakes (the original M1).
-**Fix:** Phase 3, CTRE sim state + WPILib `DCMotorSim` + a simulated battery.
+**Moved to 1507Labs** (decision 2026-09-24): 1507Base stays the minimum needed to get a robot on the field. Better sim (CTRE sim state + WPILib `DCMotorSim` + a simulated battery) will be developed in 1507Labs.
 
 #### ~~M-4. `InputField` publishing creates garbage every loop~~ ✅ Fixed
 `InputField` is deleted. Everything logs through WPILib `Telemetry` with primitive values.
@@ -205,7 +205,7 @@ Comments added during this session (Motor1507, MotorConfig, SwerveConfig, Swerve
 1. ~~**Step 3: `Subsystem1507`**~~ ✅ Done (fixed H-1, and M-1 rode along).
 2. ~~**Logging work**~~ ✅ Done (fixed H-2 and M-4; M-2 now measurable).
 3. **Robot time** (when the MK5n modules are built) — Season Setup Checklist SWERVE-3 to SWERVE-8, and LOGGING-1 to LOGGING-3.
-4. **Phase 3 simulation** (M-3), then **Phase 2 swerve library** (odometry thread, current budget, acceleration limiting, cosine scaling).
+4. **Phase 2 swerve library** (odometry thread, current budget, acceleration limiting, cosine scaling). Phase 3 simulation (M-3) moved to 1507Labs.
 5. **Revisit autos** (M-5) and **restore QuestNav** once its 2027 build ships.
 
 ---
