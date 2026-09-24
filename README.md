@@ -20,7 +20,7 @@ src/main/java/org/team1507/
   lib/core/
     framework/            Base classes: LoggedRobot, Subsystem1507, AutoOpMode
     impl/ctre/            Motor1507 and CTRE configuration
-    logging/              Telemetry
+    logging/              RobotHealthLog, CommandLog (battery, CAN, loop time, commands)
     swerve/               SwerveModule1507
     util/                 MotorConfig, Alliance
     vision/               VisionConsumer

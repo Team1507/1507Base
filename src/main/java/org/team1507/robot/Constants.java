@@ -31,6 +31,12 @@ public class Constants {
     // TODO(SEASON SWERVE-2): confirm which SystemCore port the drivetrain is wired to.
     public static final CANBus CAN_BUS = new CANBus(CANPort.CAN_S0);
 
+    // The power distribution hub (PDH). Its per-channel currents are logged
+    // every loop, to trace brownouts to the mechanism that caused them. It must
+    // keep its default CAN ID (1).
+    // TODO(SEASON LOGGING-1): confirm which SystemCore port the PDH is wired to.
+    public static final CANPort PDH_CAN_PORT = CANPort.CAN_S0;
+
     // ============================================================
     // Hardware Map — CAN IDs and ports for everything EXCEPT the
     // drivetrain (see below). Update whenever a device is replaced

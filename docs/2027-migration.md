@@ -181,7 +181,7 @@ The one v3 trap: **a loop inside a command must call `coroutine.yield()`**, or t
 ## Still to do
 
 - **QuestNav**: restore it when a 2027 build ships (expected at kickoff).
-- **Data logging**: next project. Built on WPILib's new Telemetry, with battery, current and command logging to track down brownouts. (AdvantageKit was compared and removed: we don't need its replay feature, and it would add structure students must remember.)
+- **Data logging**: done. Built on WPILib's new Telemetry: every motor signal, battery, PDH, CAN load, loop time and command events, to track down brownouts. See the Telemetry and Logging wiki page. (AdvantageKit was compared and removed: we don't need its replay feature, and it would add structure students must remember.)
 - **CAN port**: confirm which physical SystemCore port (`CAN_S0`–`CAN_S4`) the swerve is wired to, and update `Constants.CAN_BUS`.
 
 ## Checklist: doing this yourself next year

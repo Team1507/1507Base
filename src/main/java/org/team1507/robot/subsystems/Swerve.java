@@ -39,7 +39,6 @@ import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.Pigeon2;
 
 import org.team1507.lib.core.framework.Subsystem1507;
-import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.swerve.SwerveModule1507;
 import org.team1507.lib.core.util.Alliance;
 import org.team1507.robot.Constants;
@@ -134,8 +133,10 @@ public final class Swerve extends Subsystem1507 {
             backRight.getDriveMotor(),  backRight.getSteerMotor()
         );
 
-        this.yaw = pigeon.getYaw();
-        this.yawRate = pigeon.getAngularVelocityZWorld();
+        // (false) = don't read yet: the Pigeon may still be booting, and an early
+        // read only prints a "CAN frame not received" error. periodic() refreshes them.
+        this.yaw = pigeon.getYaw(false);
+        this.yawRate = pigeon.getAngularVelocityZWorld(false);
 
         // The heading feeds odometry and field-relative driving, so it must update
         // every loop. Without this, optimizeBusUtilizationForAll() below would drop
@@ -197,7 +198,7 @@ public final class Swerve extends Subsystem1507 {
         log("Pose", pose);
         log("DriveStalled", isAnyDriveStalled());
         log("SteerStalled", isAnySteerStalled());
-        Telemetry.set("Swerve/ModuleStates", getModuleStates());
+        log("ModuleStates", getModuleStates());
     }
 
     @Override

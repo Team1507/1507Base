@@ -58,6 +58,11 @@ public final class Robot extends LoggedRobot {
         // unless it names another one. Must come before creating subsystems.
         Subsystem1507.setDefaultCanBus(Constants.CAN_BUS);
 
+        // Log the PDH's per-channel currents (for tracing brownouts).
+        // TODO(SEASON LOGGING-2, LOGGING-3): on the real robot, check the logs reach a
+        // USB drive, and check loop time and CAN load (Season Setup Checklist).
+        logPowerDistribution(Constants.PDH_CAN_PORT);
+
         // Subsystems
         swerve = new Swerve();
 

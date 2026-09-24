@@ -19,8 +19,8 @@ import java.util.function.BooleanSupplier;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.system.Timer;
 import org.wpilib.command3.Command;
+import org.wpilib.telemetry.Telemetry;
 
-import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.util.Alliance;
 import org.team1507.robot.auto.nodes.FieldFlip;
 
@@ -144,8 +144,8 @@ public final class AutoSequence {
     }
 
     /**
-     * Renames the most recently added step. The name shows up in .withDebug()
-     * telemetry (and in command logs once the logging work lands). Chain
+     * Renames the most recently added step. The name shows up in the command
+     * log (Commands/Events) and in .withDebug() telemetry. Chain
      * immediately after any step method:
      *
      *   .moveThroughBy(bump, 0.2, 2.0).withName("Cross bump")
@@ -582,8 +582,8 @@ public final class AutoSequence {
         return Command.requiring(step.requirements())
             .executing(coroutine -> {
                 startTime[0] = autoTimer.get();
-                Telemetry.set(key + "/Active",    true);
-                Telemetry.set(key + "/StartTime", startTime[0]);
+                Telemetry.log(key + "/Active",    true);
+                Telemetry.log(key + "/StartTime", startTime[0]);
                 coroutine.await(step);
                 finishTimed(key, startTime[0], false);
             })
@@ -592,9 +592,9 @@ public final class AutoSequence {
     }
 
     private void finishTimed(String key, double startTime, boolean interrupted) {
-        Telemetry.set(key + "/Active",      false);
-        Telemetry.set(key + "/Duration",    autoTimer.get() - startTime);
-        Telemetry.set(key + "/Interrupted", interrupted);
+        Telemetry.log(key + "/Active",      false);
+        Telemetry.log(key + "/Duration",    autoTimer.get() - startTime);
+        Telemetry.log(key + "/Interrupted", interrupted);
     }
 
     private static String sanitize(String name) {

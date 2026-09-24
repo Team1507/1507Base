@@ -22,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.hardware.hal.HAL;
+import org.wpilib.telemetry.DiscardTelemetryBackend;
+import org.wpilib.telemetry.TelemetryRegistry;
 
 import org.team1507.robot.RobotBehaviors;
 
@@ -61,6 +63,8 @@ class CommandsV3PatternsTest {
     @BeforeAll
     static void initHal() {
         HAL.initialize();
+        // No robot program, so no telemetry destination: send logged values nowhere.
+        TelemetryRegistry.registerBackend("", new DiscardTelemetryBackend());
     }
 
     @BeforeEach

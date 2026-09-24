@@ -17,15 +17,15 @@ import java.util.Map;
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.CANBus;
 
-import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.driverstation.DriverStationErrors;
 import org.wpilib.framework.RobotBase;
+import org.wpilib.telemetry.Telemetry;
+import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.util.Alert;
 
 import org.team1507.lib.core.impl.ctre.Motor1507;
-import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.util.MotorConfig;
 
 /**
@@ -42,18 +42,24 @@ import org.team1507.lib.core.util.MotorConfig;
  * <ul>
  *   <li><b>refreshes</b> all of the subsystem's motors in one CAN call, BEFORE
  *       {@link #periodic()}, so every motor getter returns fresh values;</li>
- *   <li><b>steps the simulation</b> for each motor (in the simulator only);</li>
+ *   <li><b>logs every motor</b>: all of its signals (currents, voltages,
+ *       position, speed, temperature, faults), its target and stall state;</li>
  *   <li><b>logs the subsystem's total supply current</b> at
- *       {@code <Subsystem>/TotalSupplyCurrent}, for finding brownouts.</li>
+ *       {@code <Subsystem>/TotalSupplyCurrent}, for finding brownouts;</li>
+ *   <li><b>steps the simulation</b> for each motor (in the simulator only).</li>
  * </ul>
  * (Before 2027, every subsystem had to collect signal arrays, call refreshAll,
  * and step the sim by hand. Forgetting the refresh meant stale values forever.)
  *
+ * <p>Also logged for every subsystem: {@code <Subsystem>/Command} (the command
+ * using it; see CommandLog) and {@code <Subsystem>/PeriodicMs} (how long this
+ * loop took, for finding loop overruns).
+ *
  * <h2>The loop, in order</h2>
  * <ol>
  *   <li>refresh registered motors</li>
- *   <li>{@link #periodic()} — your code: read sensors, log values</li>
- *   <li>log total supply current</li>
+ *   <li>{@link #periodic()} — your code: read sensors, log values, flag problems</li>
+ *   <li>log every motor, total supply current and the loop's time</li>
  *   <li>simulation only: step registered motors, then {@link #simulationPeriodic()}</li>
  * </ol>
  * All of this runs before any commands, the same as v2 subsystems did.
@@ -78,18 +84,18 @@ public abstract class Subsystem1507 implements Mechanism {
 
     private final String name;
 
+    /** Where this subsystem's values are logged ({@code <name>/...}). */
+    private final TelemetryTable table;
+
     /** Motors this subsystem refreshes and simulates (created with {@link #motor}). */
     private final List<Motor1507> managedMotors = new ArrayList<>();
     private BaseStatusSignal[] managedSignals = new BaseStatusSignal[0];
 
-    /** Every motor that counts toward this subsystem's current (managed + tracked). */
+    /** Every motor this subsystem logs and counts toward its current (managed + tracked). */
     private final List<Motor1507> allMotors = new ArrayList<>();
 
     /** Dashboard alerts, created once per message and reused. */
     private final Map<String, Alert> alerts = new HashMap<>();
-
-    /** Full telemetry keys ("Name/child"), built once per child and reused. */
-    private final Map<String, String> keys = new HashMap<>();
 
     /**
      * @param name subsystem name — used as the telemetry root for everything
@@ -98,6 +104,7 @@ public abstract class Subsystem1507 implements Mechanism {
      */
     protected Subsystem1507(String name) {
         this.name = name;
+        this.table = Telemetry.getTable(name);
         ALL.add(this);
         Scheduler.getDefault().addPeriodic(this::runEveryLoop);
     }
@@ -163,10 +170,11 @@ public abstract class Subsystem1507 implements Mechanism {
     }
 
     /**
-     * Counts motors this subsystem did NOT create with {@link #motor} toward its
-     * total current, without refreshing or simulating them. For subsystems that
-     * already refresh their own motors (Swerve refreshes its motors, CANcoders
-     * and gyro together in one call). Most subsystems never need this.
+     * Logs motors this subsystem did NOT create with {@link #motor}, and counts
+     * them toward its total current, without refreshing or simulating them. For
+     * subsystems that already refresh their own motors (Swerve refreshes its
+     * motors, CANcoders and gyro together in one call). Most subsystems never
+     * need this.
      */
     protected void trackMotors(Motor1507... motors) {
         allMotors.addAll(List.of(motors));
@@ -183,6 +191,8 @@ public abstract class Subsystem1507 implements Mechanism {
 
     /** The loop described in the class comment. Registered with the scheduler. */
     private void runEveryLoop() {
+        long start = System.nanoTime();
+
         if (managedSignals.length > 0) {
             BaseStatusSignal.refreshAll(managedSignals);
         }
@@ -190,7 +200,10 @@ public abstract class Subsystem1507 implements Mechanism {
         periodic();
 
         if (!allMotors.isEmpty()) {
-            log("TotalSupplyCurrent", getSupplyCurrent());
+            for (Motor1507 motor : allMotors) {
+                motor.log();
+            }
+            table.log("TotalSupplyCurrent", getSupplyCurrent());
         }
 
         if (RobotBase.isSimulation()) {
@@ -199,46 +212,36 @@ public abstract class Subsystem1507 implements Mechanism {
             }
             simulationPeriodic();
         }
+
+        table.log("PeriodicMs", (System.nanoTime() - start) / 1e6);
     }
 
     // =========================================================================
     // Telemetry helpers
     // =========================================================================
 
+    // Logging goes through WPILib 2027's Telemetry. It lands in NetworkTables
+    // under /Telemetry/<Subsystem>/<field> (live in AdvantageScope and Elastic),
+    // and DataLogManager records it into the match log (.wpilog) on the robot.
+    // A value that didn't change since the last loop isn't written again.
+
     /**
-     * Returns the full telemetry path for a child field.
-     *
-     * <p>Example: for a subsystem named {@code "Arm"}, {@code key("AngleDegrees")}
-     * returns {@code "Arm/AngleDegrees"}. {@link #motor} uses it so each motor's
-     * telemetry nests under the subsystem ({@code Arm/Motor/PositionDeg}, ...).
-     *
-     * @param child the field or component name to append
-     * @return {@code getName() + "/" + child}
+     * Returns the full telemetry path for a child, e.g. {@code key("Roller")} in
+     * a subsystem named {@code "Intake"} returns {@code "Intake/Roller"}.
+     * {@link #motor} uses it so each motor's values nest under the subsystem.
      */
     protected String key(String child) {
-        // Cached: log() runs every loop, and building "Name/child" each time
-        // would create a new string (garbage) on every call.
-        String full = keys.get(child);
-        if (full == null) {
-            full = getName() + "/" + child;
-            keys.put(child, full);
-        }
-        return full;
+        return getName() + "/" + child;
     }
 
-    /** Records a true/false value at {@code <Subsystem>/<field>}, e.g. {@code log("Stalled", isStalled())}. */
+    /** Records a true/false value at {@code <Subsystem>/<field>}, e.g. {@code log("HasPiece", hasPiece())}. */
     protected void log(String field, boolean value) {
-        Telemetry.set(key(field), value);
+        table.log(field, value);
     }
 
     /** Records a number at {@code <Subsystem>/<field>}, e.g. {@code log("AngleDegrees", getAngle())}. */
     protected void log(String field, double value) {
-        Telemetry.set(key(field), value);
-    }
-
-    /** Records a field position at {@code <Subsystem>/<field>}; AdvantageScope can draw it. */
-    protected void log(String field, Pose2d pose) {
-        Telemetry.set(key(field), pose);
+        table.log(field, value);
     }
 
     /**
@@ -248,7 +251,21 @@ public abstract class Subsystem1507 implements Mechanism {
      * </pre>
      */
     protected void log(String field, String value) {
-        Telemetry.set(key(field), value);
+        table.log(field, value);
+    }
+
+    /**
+     * Records a WPILib object at {@code <Subsystem>/<field>}: a {@code Pose2d},
+     * {@code Rotation2d}, {@code ChassisSpeeds}, ... AdvantageScope can draw poses
+     * on the field.
+     */
+    protected void log(String field, Object value) {
+        table.log(field, value);
+    }
+
+    /** Records an array of WPILib objects, e.g. swerve module states. */
+    protected void log(String field, Object[] values) {
+        table.log(field, values);
     }
 
     // =========================================================================

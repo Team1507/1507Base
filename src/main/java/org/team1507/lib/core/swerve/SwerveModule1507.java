@@ -25,9 +25,10 @@ import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.AngularVelocity;
 import org.wpilib.framework.RobotBase;
+import org.wpilib.telemetry.Telemetry;
+import org.wpilib.telemetry.TelemetryTable;
 
 import org.team1507.lib.core.impl.ctre.Motor1507;
-import org.team1507.lib.core.logging.Telemetry;
 
 /**
  * One swerve module: a drive motor, a steer motor, and the CANcoder that
@@ -56,6 +57,8 @@ public final class SwerveModule1507 {
     }
 
     private final String name;
+    /** Where this module's targets are logged (Swerve/<name>/...). */
+    private final TelemetryTable table;
 
     private final Motor1507 drive;
     private final Motor1507 steer;
@@ -94,6 +97,7 @@ public final class SwerveModule1507 {
         double driveMetersScale
     ) {
         this.name = name;
+        this.table = Telemetry.getTable("Swerve/" + name);
         this.drive = drive;
         this.steer = steer;
         this.encoder = encoder;
@@ -160,9 +164,9 @@ public final class SwerveModule1507 {
 
         lastAngle = targetAngle;
 
-        Telemetry.set(key("Drive/TargetMps"), optimized.velocity);
-        Telemetry.set(key("Drive/TargetMotorRps"), driveRps);
-        Telemetry.set(key("Steer/TargetAngleRad"), targetAngle.getRadians());
+        // The motors log their own targets (Drive/TargetRPM, Steer/TargetPositionDeg).
+        // This is the wheel speed the drive target came from.
+        table.log("TargetWheelMps", optimized.velocity);
     }
 
     /** Stops both the drive and steer motors immediately. */
@@ -330,9 +334,5 @@ public final class SwerveModule1507 {
         double wheelRps = mps / math.wheelCircumferenceMeters();
         return (wheelRps * math.driveGearRatio())
             + (azimuthRpsRaw() * math.couplingRatio());
-    }
-
-    private String key(String field) {
-        return "Swerve/" + name + "/" + field;
     }
 }

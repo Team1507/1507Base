@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.hardware.hal.HAL;
+import org.wpilib.telemetry.DiscardTelemetryBackend;
+import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 
@@ -43,6 +45,8 @@ class SwerveCommandsTest {
     @BeforeAll
     static void createSwerve() {
         HAL.initialize();
+        // No robot program, so no telemetry destination: send logged values nowhere.
+        TelemetryRegistry.registerBackend("", new DiscardTelemetryBackend());
         swerve = new Swerve();
     }
 

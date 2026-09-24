@@ -28,12 +28,9 @@ import com.ctre.phoenix6.hardware.traits.CommonTalon;
 
 import org.wpilib.framework.RobotBase;
 import org.wpilib.system.Timer;
+import org.wpilib.telemetry.Telemetry;
 import org.wpilib.telemetry.TelemetryLoggable;
 import org.wpilib.telemetry.TelemetryTable;
-
-import org.team1507.lib.core.logging.InputField;
-import org.team1507.lib.core.logging.Telemetry;
-import org.team1507.lib.core.logging.TelemetryRate;
 import org.team1507.lib.core.util.MotorConfig;
 import org.team1507.lib.core.util.MotorConfig.ControlMode;
 
@@ -77,53 +74,60 @@ public final class Motor1507 implements TelemetryLoggable {
     /**
      * Every value the motor reports, in the units students work in. Read any of
      * them with {@link #get(MotorSignal)}. This is also the list of what the
-     * motor logs.
+     * motor logs, every loop, under {@code <motor name>/<logName>}.
      *
      * <p>Each has a CAN update rate: position and speed are fast (control and
-     * odometry need them), current and voltage are medium (brownout analysis),
-     * and the rest are slow to keep the CAN bus from filling up.
+     * odometry need them); currents and voltages are 50 Hz, so the log gets
+     * every sample the motor sends (brownout analysis); the rest are slow to
+     * keep the CAN bus from filling up.
      */
     public enum MotorSignal {
         /** Output-shaft position, degrees. */
-        POSITION("degrees", 100),
+        POSITION("PositionDeg", "degrees", 100),
         /** Output-shaft speed, RPM. */
-        VELOCITY("RPM", 100),
+        VELOCITY("RPM", "RPM", 100),
         /** Current drawn from the battery, amps. */
-        SUPPLY_CURRENT("A", 50),
+        SUPPLY_CURRENT("SupplyCurrent", "A", 50),
         /** Current in the motor windings (proportional to torque), amps. */
-        STATOR_CURRENT("A", 50),
+        STATOR_CURRENT("StatorCurrent", "A", 50),
         /** Voltage the motor controller is applying to the motor, volts. */
-        MOTOR_VOLTAGE("V", 50),
+        MOTOR_VOLTAGE("MotorVoltage", "V", 50),
+        /** Battery voltage measured at this motor controller, volts. Shows voltage sag during a brownout. */
+        SUPPLY_VOLTAGE("SupplyVoltage", "V", 50),
         /** Torque-producing current, amps. */
-        TORQUE_CURRENT("A", 10),
+        TORQUE_CURRENT("TorqueCurrent", "A", 10),
         /** Output as a fraction of full power, -1 to 1. */
-        DUTY_CYCLE("fraction", 10),
+        DUTY_CYCLE("DutyCycle", "fraction", 10),
         /** Motor rotor position, before the gearbox, rotations. */
-        ROTOR_POSITION("rotations", 10),
+        ROTOR_POSITION("RotorPositionRot", "rotations", 10),
         /** Motor rotor speed, before the gearbox, RPM. */
-        ROTOR_VELOCITY("RPM", 10),
-        /** Battery voltage measured at this motor controller, volts. */
-        SUPPLY_VOLTAGE("V", 10),
+        ROTOR_VELOCITY("RotorRPM", "RPM", 10),
         /** Motor controller temperature, °C. */
-        TEMPERATURE("°C", 10),
+        TEMPERATURE("TemperatureC", "°C", 10),
         /** Closed-loop target, in CTRE units (mechanism rotations, or rotations/s for velocity). */
-        CLOSED_LOOP_TARGET("CTRE units", 10),
+        CLOSED_LOOP_TARGET("ClosedLoopTarget", "CTRE units", 10),
         /** Closed-loop error, in CTRE units (mechanism rotations, or rotations/s for velocity). */
-        CLOSED_LOOP_ERROR("CTRE units", 10),
+        CLOSED_LOOP_ERROR("ClosedLoopError", "CTRE units", 10),
         /** Active faults as a bit field (0 = no faults). */
-        FAULTS("bits", 10),
+        FAULTS("Faults", "bits", 10),
         /** Faults that happened since they were last cleared, as a bit field. */
-        STICKY_FAULTS("bits", 10);
+        STICKY_FAULTS("StickyFaults", "bits", 10);
 
+        /** Name in the log, e.g. {@code SupplyCurrent} → {@code Intake/Roller/SupplyCurrent}. */
+        public final String logName;
         /** Units of the value {@link Motor1507#get(MotorSignal)} returns. */
         public final String units;
         /** How often the motor sends this value over CAN (Hz). */
         public final double updateHz;
 
-        MotorSignal(String units, double updateHz) {
+        MotorSignal(String logName, String units, double updateHz) {
+            this.logName = logName;
             this.units = units;
             this.updateHz = updateHz;
         }
+
+        /** values() copies the array on every call; this copy is made once. */
+        private static final MotorSignal[] ALL = values();
     }
 
     private static final double INCHES_TO_METERS = 0.0254;
@@ -137,6 +141,8 @@ public final class Motor1507 implements TelemetryLoggable {
     // =========================================================================
 
     private final String name;
+    /** Where this motor's values are logged ({@code name}/...). */
+    private final TelemetryTable table;
     private final ParentDevice device;
     private final CommonTalon talon;
     /** Slot 0 config: control mode, units, tolerances, stall and sim settings. */
@@ -161,6 +167,11 @@ public final class Motor1507 implements TelemetryLoggable {
     private double targetRotations = 0.0;
     private double targetRps = 0.0;
 
+    // Last targets logged. NaN (no target) never equals itself, so the log's
+    // "skip unchanged values" can't catch it; these let log() write NaN once.
+    private double lastLoggedTargetPosition = 0.0;
+    private double lastLoggedTargetRpm = 0.0;
+
     // Stall detection
     private double lastNotStalledTime;
     private boolean lastStalled = false;
@@ -177,7 +188,7 @@ public final class Motor1507 implements TelemetryLoggable {
     /**
      * Creates a motor and applies its configuration.
      *
-     * @param name    telemetry name, e.g. "Arm/Motor" (Subsystem1507.key("Motor") builds it)
+     * @param name    telemetry name, e.g. "Arm/Motor" (Subsystem1507.motor(...) builds it)
      * @param type    FX (Kraken / Falcon) or FXS (Minion)
      * @param canId   CAN ID set in Phoenix Tuner X
      * @param canBus  CAN bus the motor is wired to (use {@code Constants.CAN_BUS})
@@ -185,6 +196,7 @@ public final class Motor1507 implements TelemetryLoggable {
      */
     public Motor1507(String name, Type type, int canId, CANBus canBus, MotorConfig... configs) {
         this.name = name;
+        this.table = Telemetry.getTable(name);
         this.device = switch (type) {
             case FX  -> new TalonFX(canId, canBus);
             case FXS -> new TalonFXS(canId, canBus);
@@ -219,23 +231,13 @@ public final class Motor1507 implements TelemetryLoggable {
 
         // (false) above = don't read the value yet. The device may still be
         // booting, and an early read just prints a "frame not received" warning.
-        for (MotorSignal s : MotorSignal.values()) {
+        for (MotorSignal s : MotorSignal.ALL) {
             signals.get(s).setUpdateFrequency(s.updateHz);
         }
         allSignals = signals.values().toArray(BaseStatusSignal[]::new);
 
         // Start the stall timer now, so the first loop can't see a false stall.
         this.lastNotStalledTime = Timer.getTimestamp();
-
-        // Telemetry (the logging rework replaces this with logTo())
-        Telemetry.register(
-            new InputField<>(key("PositionDeg"),   this::getPosition,       TelemetryRate.NORMAL),
-            new InputField<>(key("RPM"),           this::getRPM,            TelemetryRate.FAST),
-            new InputField<>(key("SupplyCurrent"), this::getSupplyCurrent,  TelemetryRate.NORMAL),
-            new InputField<>(key("StatorCurrent"), this::getStatorCurrent,  TelemetryRate.NORMAL),
-            new InputField<>(key("Voltage"),       this::getMotorVoltage,   TelemetryRate.SLOW),
-            new InputField<>(key("Temperature"),   this::getTemperature,    TelemetryRate.SLOW)
-        );
     }
 
     // =========================================================================
@@ -493,7 +495,7 @@ public final class Motor1507 implements TelemetryLoggable {
      * True when the motor is pushing hard but not moving: stator current above
      * the config's stall current, speed below its stall velocity, for longer
      * than its stall time. It only DETECTS the stall; your code decides what
-     * to do. Stall start and end are logged as events.
+     * to do. {@link #log()} records it every loop as {@code Stalled}.
      */
     public boolean isStalled() {
         boolean stalledNow =
@@ -503,20 +505,12 @@ public final class Motor1507 implements TelemetryLoggable {
         double now = Timer.getTimestamp();
 
         if (!stalledNow) {
-            if (lastStalled) {
-                Telemetry.event(name + "/StallEnd");
-            }
             lastStalled = false;
             lastNotStalledTime = now;
             return false;
         }
 
         boolean sustained = (now - lastNotStalledTime) > config.stallTimeSeconds();
-
-        if (sustained && !lastStalled) {
-            Telemetry.event(name + "/StallStart");
-        }
-
         lastStalled = sustained;
         return sustained;
     }
@@ -590,15 +584,38 @@ public final class Motor1507 implements TelemetryLoggable {
     // Telemetry
     // =========================================================================
 
-    /** Logs every {@link MotorSignal} plus the current target and stall state. */
+    /**
+     * Logs every {@link MotorSignal}, the current target and the stall state
+     * under this motor's name ({@code Intake/Roller/SupplyCurrent}, ...).
+     * Subsystem1507 calls this every loop for every motor it knows about, right
+     * after the motors are refreshed; students never call it.
+     *
+     * <p>A value that hasn't changed since the last loop isn't written again,
+     * so slow signals (temperature, faults) take almost no space in the log.
+     */
+    public void log() {
+        logTo(table);
+    }
+
+    /** Same as {@link #log()}, into any table. Lets {@code Telemetry.log("Name", motor)} work. */
     @Override
     public void logTo(TelemetryTable table) {
-        for (MotorSignal s : MotorSignal.values()) {
-            table.log(s.name(), get(s));
+        for (MotorSignal s : MotorSignal.ALL) {
+            table.log(s.logName, get(s));
         }
-        table.log("TARGET_POSITION", getTargetPosition());
-        table.log("TARGET_RPM", getTargetRPM());
-        table.log("STALLED", lastStalled);
+        double targetPosition = getTargetPosition();
+        if (!(Double.isNaN(targetPosition) && Double.isNaN(lastLoggedTargetPosition))) {
+            table.log("TargetPositionDeg", targetPosition);
+        }
+        lastLoggedTargetPosition = targetPosition;
+
+        double targetRpm = getTargetRPM();
+        if (!(Double.isNaN(targetRpm) && Double.isNaN(lastLoggedTargetRpm))) {
+            table.log("TargetRPM", targetRpm);
+        }
+        lastLoggedTargetRpm = targetRpm;
+
+        table.log("Stalled", isStalled());
     }
 
     @Override
@@ -617,9 +634,5 @@ public final class Motor1507 implements TelemetryLoggable {
                 + "MotorConfig: .withDrumDiameterMeters(...) or .withDrumDiameterInches(...)");
         }
         return circumference;
-    }
-
-    private String key(String field) {
-        return name + "/" + field;
     }
 }
