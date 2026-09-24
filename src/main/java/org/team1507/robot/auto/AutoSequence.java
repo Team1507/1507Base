@@ -15,8 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
-import com.pathplanner.lib.path.PathPlannerPath;
-
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.system.Timer;
 import org.wpilib.command2.Command;
@@ -289,30 +287,6 @@ public final class AutoSequence {
             AutoBuilder.swerve.moveThroughPose(Alliance.isRed() ? FieldFlip.pose(waypoint) : waypoint, speed, angular, passRadius),
             Commands.waitUntil(() -> autoTimer.get() >= cutoffSeconds)
         ).withName("moveThroughBy"));
-        return this;
-    }
-
-    /** Follows a PathPlanner path file to completion. Path files live in deploy/pathplanner/paths/. */
-    public AutoSequence drivePath(String pathName) {
-        try {
-            steps.add(com.pathplanner.lib.auto.AutoBuilder.followPath(PathPlannerPath.fromPathFile(pathName))
-                .withName("drivePath_" + pathName));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load PathPlanner path: " + pathName, e);
-        }
-        return this;
-    }
-
-    /** Follows a PathPlanner path, but cancels if autoTimer passes cutoffSeconds. */
-    public AutoSequence drivePathBy(String pathName, double cutoffSeconds) {
-        try {
-            steps.add(Commands.race(
-                com.pathplanner.lib.auto.AutoBuilder.followPath(PathPlannerPath.fromPathFile(pathName)),
-                Commands.waitUntil(() -> autoTimer.get() >= cutoffSeconds)
-            ).withName("drivePathBy_" + pathName));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load PathPlanner path: " + pathName, e);
-        }
         return this;
     }
 
