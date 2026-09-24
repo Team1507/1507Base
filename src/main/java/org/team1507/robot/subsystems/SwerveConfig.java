@@ -482,9 +482,8 @@ public final class SwerveConfig {
         }
 
         // --- Mechanics
-        if (TunerConstants.kDriveGearRatio <= 1.0 || TunerConstants.kSteerGearRatio <= 1.0) {
-            problems.add("Gear ratios must be motor rotations per wheel/module rotation (> 1).");
-        }
+        checkGearRatio(problems, "kDriveGearRatio", TunerConstants.kDriveGearRatio);
+        checkGearRatio(problems, "kSteerGearRatio", TunerConstants.kSteerGearRatio);
         double wheelIn = TunerConstants.kWheelRadius.in(Inches);
         if (wheelIn < 1.5 || wheelIn > 2.5) {
             problems.add("kWheelRadius = " + wheelIn + " in. Radius, not diameter? (a 4 in wheel has a 2 in radius)");
@@ -547,6 +546,21 @@ public final class SwerveConfig {
         }
 
         return problems;
+    }
+
+    /**
+     * Gear ratios are motor turns per wheel/module turn, so they are always
+     * greater than 1. A value below 1 was almost certainly typed upside down.
+     *
+     * <p>(This is a method on purpose: with the paste zone's fixed values, an
+     * inline {@code if} would be flagged by the IDE as "dead code", because the
+     * compiler can see it's false today. It still matters after the next paste.)
+     */
+    private static void checkGearRatio(List<String> problems, String name, double ratio) {
+        if (ratio <= 1.0) {
+            problems.add(name + " = " + ratio + ". Gear ratios are motor turns per wheel/module "
+                + "turn (> 1). Typed upside down?");
+        }
     }
 
     private static void checkQuadrant(
