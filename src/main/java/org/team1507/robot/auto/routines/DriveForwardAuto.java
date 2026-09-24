@@ -9,7 +9,7 @@
 package org.team1507.robot.auto.routines;
 
 import org.wpilib.math.geometry.Pose2d;
-import org.wpilib.command2.Command;
+import org.wpilib.command3.Command;
 import org.wpilib.opmode.Autonomous;
 
 import org.team1507.lib.core.framework.AutoOpMode;

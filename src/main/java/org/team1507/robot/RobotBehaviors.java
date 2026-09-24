@@ -8,9 +8,13 @@
 
 package org.team1507.robot;
 
-import org.wpilib.command2.Command;
-import org.wpilib.command2.CommandScheduler;
-import org.wpilib.command2.Commands;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.wpilib.command3.Command;
+import org.wpilib.command3.Mechanism;
+
+import org.team1507.lib.core.framework.Subsystem1507;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RobotBehaviors
@@ -25,26 +29,32 @@ import org.wpilib.command2.Commands;
 //   routine, it calls the same method. You never write the same behavior twice.
 //
 // HOW TELEOP USES THIS:
-//   In Robot.java:
-//     driver.a().onTrue(RobotBehaviors.myBehavior());
+//   In robot/teleop/DriverTeleop.java:
+//     robot.driver.faceUp().onTrue(RobotBehaviors.myBehavior(robot));
 //
 // HOW AUTO USES THIS:
 //   In AutoSequence.java (add a one-line wrapper):
 //     public AutoSequence myBehavior() {
-//         steps.add(RobotBehaviors.myBehavior());
+//         steps.add(RobotBehaviors.myBehavior(...));
 //         return this;
 //     }
 //   Then in a routine:
-//     new AutoSequence().myBehavior().driveFieldRelative(...).build();
+//     new AutoSequence().myBehavior().driveToPoint(...).build();
 //
-// HOW TO ADD A NEW BEHAVIOR:
+// HOW TO ADD A NEW BEHAVIOR (Commands v3):
 //   1. Identify which subsystems are involved.
-//   2. Write a static method here that composes their individual commands.
-//   3. Use Commands.sequence() for ordered steps.
-//      Use Commands.parallel() for simultaneous actions.
-//      Use Commands.waitUntil() to gate one action on another subsystem's state.
-//   4. Add a wrapper in AutoSequence.java if it's needed in auto routines.
-//   5. Bind it in Robot.java if it's a driver control.
+//   2. Write a static method here that combines their commands. The simplest
+//      way reads top to bottom:
+//
+//        return Command.noRequirements(coroutine -> {
+//            coroutine.await(elevator.goToHigh());            // wait for it to finish
+//            coroutine.awaitAll(arm.score(), intake.eject()); // both at once
+//        }).named("ScoreHigh");
+//
+//      Or chain them:  Command.sequence(a, b).named("...")
+//                      Command.parallel(a, b).named("...")
+//   3. Add a wrapper in AutoSequence.java if it's needed in auto routines.
+//   4. Bind it in an OpMode (e.g. DriverTeleop) if it's a driver control.
 //
 // NAMING CONVENTION:
 //   Name behaviors by what the robot DOES, not what the mechanism is.
@@ -61,21 +71,23 @@ public final class RobotBehaviors {
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Cancels every running command immediately.
+     * Interrupts every command that is using a subsystem.
      *
-     * <p>Use when a mechanism appears stuck or unresponsive. All commands are
-     * cancelled on the spot; subsystem default commands (e.g. the swerve drive)
-     * are automatically rescheduled by the scheduler on the next cycle, so
-     * driving is restored within one loop.
+     * <p>Use when a mechanism appears stuck or unresponsive. This command
+     * requires EVERY subsystem at the highest priority, so starting it
+     * interrupts whatever was using them. It then finishes immediately, and
+     * each subsystem's default command (e.g. joystick driving) starts again on
+     * the next loop.
      *
-     * <p>Works while disabled ({@code ignoringDisable(true)}) so operators can
-     * clear a stuck state before enabling.
+     * <p>Commands that use no subsystem (for example a plain wait) are not affected.
      *
-     * <p>Binding: {@code driver.back().onTrue(RobotBehaviors.failsafe());}
+     * <p>Binding (DriverTeleop): {@code robot.driver.back().onTrue(RobotBehaviors.failsafe());}
      */
     public static Command failsafe() {
-        return Commands.runOnce(CommandScheduler.getInstance()::cancelAll)
-            .withName("Failsafe.cancelAll")
-            .ignoringDisable(true);
+        List<Mechanism> everything = new ArrayList<>(Subsystem1507.all());
+        return Command.requiring(everything)
+            .executing(coroutine -> {})
+            .withPriority(Command.HIGHEST_PRIORITY)
+            .named("Failsafe");
     }
 }

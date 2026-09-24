@@ -21,6 +21,10 @@
 //   3. Re-add the questNav field and "Set Pose" commands in Robot.java
 //      (search for TODO(QuestNav 2027)).
 //   4. Build and fix anything the new QuestNav API changed.
+//   5. Port the commands to Commands v3. CommandBuilder was removed when
+//      1507Base moved to v3: rewrite setKnownPoseCommand() and
+//      resetPoseFromQuestCommand() with run(coroutine -> ...).named(...),
+//      and extend Subsystem1507 (now a v3 Mechanism). See Swerve.java for examples.
 // ─────────────────────────────────────────────────────────────────────────────
 
 package org.team1507.lib.core.vision;

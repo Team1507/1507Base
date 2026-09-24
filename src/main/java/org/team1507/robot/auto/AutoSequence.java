@@ -10,6 +10,7 @@ package org.team1507.robot.auto;
 
 import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.RotationsPerSecond;
+import static org.wpilib.units.Units.Seconds;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,8 +18,7 @@ import java.util.function.BooleanSupplier;
 
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.system.Timer;
-import org.wpilib.command2.Command;
-import org.wpilib.command2.Commands;
+import org.wpilib.command3.Command;
 
 import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.util.Alliance;
@@ -33,7 +33,6 @@ import org.team1507.robot.auto.nodes.FieldFlip;
 //
 // BASIC USAGE:
 //   new AutoSequence()
-//       .startTimer()
 //       .resetPose(Nodes.Robot.Start.RIGHT)
 //       .driveToPoint(Nodes.Robot.Score.RIGHT, true)
 //       .stop()
@@ -52,9 +51,13 @@ import org.team1507.robot.auto.nodes.FieldFlip;
 //
 //   new AutoSequence()
 //       .withDebug()
-//       .startTimer()
 //       .moveThroughBy(bump, 0.2, 2.0).withName("Cross bump")
 //       .build();
+//
+// AUTO TIMER:
+//   build() starts the auto timer automatically as the routine's first step,
+//   so .waitUntilTime(), .driveToBy() and .moveThroughBy() always work.
+//   Call .startTimer() only to restart the timer partway through.
 //
 // GROUPS (parallel / race / deadline):
 //   Each branch inside a group is its own mini-sequence, written as a lambda:
@@ -100,7 +103,7 @@ public final class AutoSequence {
     // Set via .withDebug(). Off by default — no NT overhead in production.
     private boolean debugEnabled = false;
 
-    // Autonomous match timer — started with .startTimer(), read by .waitUntilTime() etc.
+    // Autonomous match timer — started automatically by build(), read by .waitUntilTime() etc.
     // Passed into branch sub-sequences so timer-gated steps work correctly inside groups.
     private final Timer autoTimer;
 
@@ -140,16 +143,20 @@ public final class AutoSequence {
     }
 
     /**
-     * Overrides the telemetry name of the most recently added step.
-     * Chain immediately after any step method:
+     * Renames the most recently added step. The name shows up in command logs
+     * and in .withDebug() telemetry. Chain immediately after any step method:
      *
      *   .moveThroughBy(bump, 0.2, 2.0).withName("Cross bump")
-     *
-     * Has no effect if debug is not enabled.
      */
     public AutoSequence withName(String name) {
         if (!steps.isEmpty()) {
-            steps.get(steps.size() - 1).setName(name);
+            // v3 command names can't change after creation, so wrap the step in a
+            // named command that just runs it. The wrapper keeps the step's
+            // requirements so it still owns the same mechanisms.
+            Command step = steps.remove(steps.size() - 1);
+            steps.add(Command.requiring(step.requirements())
+                .executing(coroutine -> coroutine.await(step))
+                .named(name));
         }
         return this;
     }
@@ -269,10 +276,10 @@ public final class AutoSequence {
      */
     public AutoSequence driveToBy(Pose2d goal, double cutoffSeconds) {
         double speed = consumeSpeed();
-        steps.add(Commands.race(
+        steps.add(Command.race(
             AutoBuilder.swerve.driveToPoint(Alliance.isRed() ? FieldFlip.pose(goal) : goal, speed, true),
-            Commands.waitUntil(() -> autoTimer.get() >= cutoffSeconds)
-        ).withName("driveToBy"));
+            timerReaches(cutoffSeconds)
+        ).named("driveToBy"));
         return this;
     }
 
@@ -283,10 +290,10 @@ public final class AutoSequence {
     public AutoSequence moveThroughBy(Pose2d waypoint, double passRadius, double cutoffSeconds) {
         double angular = consumeAngular();
         double speed   = consumeSpeed();
-        steps.add(Commands.race(
+        steps.add(Command.race(
             AutoBuilder.swerve.moveThroughPose(Alliance.isRed() ? FieldFlip.pose(waypoint) : waypoint, speed, angular, passRadius),
-            Commands.waitUntil(() -> autoTimer.get() >= cutoffSeconds)
-        ).withName("moveThroughBy"));
+            timerReaches(cutoffSeconds)
+        ).named("moveThroughBy"));
         return this;
     }
 
@@ -388,7 +395,7 @@ public final class AutoSequence {
             branch.build(sub);
             commands.add(sub.buildRaw());
         }
-        steps.add(Commands.parallel(commands.toArray(Command[]::new)).withName("parallel"));
+        steps.add(Command.parallel(commands.toArray(Command[]::new)).named("parallel"));
         return this;
     }
 
@@ -409,7 +416,7 @@ public final class AutoSequence {
             branch.build(sub);
             commands.add(sub.buildRaw());
         }
-        steps.add(Commands.race(commands.toArray(Command[]::new)).withName("race"));
+        steps.add(Command.race(commands.toArray(Command[]::new)).named("race"));
         return this;
     }
 
@@ -437,10 +444,11 @@ public final class AutoSequence {
             otherCommands.add(sub.buildRaw());
         }
 
-        steps.add(Commands.deadline(
-            deadlineSeq.buildRaw(),
-            otherCommands.toArray(Command[]::new)
-        ).withName("deadline"));
+        // v3: the deadline is the only REQUIRED command; the group ends when it
+        // finishes and cancels the OPTIONAL others.
+        steps.add(Command.parallel(deadlineSeq.buildRaw())
+            .optional(otherCommands.toArray(Command[]::new))
+            .named("deadline"));
         return this;
     }
 
@@ -449,20 +457,28 @@ public final class AutoSequence {
     // TIMER UTILITIES
     //
     // The auto timer lets you gate actions on match time rather than duration.
-    // Always call .startTimer() as your first step if you plan to use
-    // .waitUntilTime(), .driveToBy(), or .moveThroughBy().
+    // build() starts it automatically when the routine starts, so
+    // .waitUntilTime(), .driveToBy() and .moveThroughBy() always work.
     // =========================================================================
 
     /**
-     * Starts the autonomous match timer.
-     * Call this as the very first step in any routine that uses timer-gated steps.
+     * Restarts the autonomous timer from zero. build() already starts the timer
+     * when the routine begins; use this only to restart it partway through.
      */
     public AutoSequence startTimer() {
-        steps.add(Commands.runOnce(() -> {
-            autoTimer.reset();
-            autoTimer.start();
-        }).withName("startTimer"));
+        steps.add(startTimerCommand());
         return this;
+    }
+
+    private Command startTimerCommand() {
+        return Command.noRequirements(coroutine -> autoTimer.restart())
+            .named("startTimer");
+    }
+
+    /** A command that finishes when the auto timer reaches the given time. */
+    private Command timerReaches(double seconds) {
+        return Command.waitUntil(() -> autoTimer.get() >= seconds)
+            .named("until t=" + seconds + "s");
     }
 
     /**
@@ -470,7 +486,7 @@ public final class AutoSequence {
      * Useful for precisely aligning actions to the match clock.
      */
     public AutoSequence waitUntilTime(double matchTimeSeconds) {
-        steps.add(Commands.waitUntil(() -> autoTimer.get() >= matchTimeSeconds).withName("waitUntilTime"));
+        steps.add(timerReaches(matchTimeSeconds));
         return this;
     }
 
@@ -479,13 +495,13 @@ public final class AutoSequence {
      * Use this to gate custom commands not yet wrapped in AutoSequence.
      *
      * Example:
-     *   .addCommand(Commands.race(
+     *   .addCommand(Command.race(
      *       AutoBuilder.mySubsystem.runCommand(),
-     *       endAtTime(13.5)
-     *   ))
+     *       seq.endAtTime(13.5)
+     *   ).named("Run until 13.5 s"))
      */
     public Command endAtTime(double matchTimeSeconds) {
-        return Commands.waitUntil(() -> autoTimer.get() >= matchTimeSeconds);
+        return timerReaches(matchTimeSeconds);
     }
 
 
@@ -495,7 +511,7 @@ public final class AutoSequence {
 
     /** Waits a fixed number of seconds before proceeding to the next step. */
     public AutoSequence waitSeconds(double seconds) {
-        steps.add(Commands.waitSeconds(seconds).withName("waitSeconds"));
+        steps.add(Command.waitFor(Seconds.of(seconds)).named("wait " + seconds + "s"));
         return this;
     }
 
@@ -504,7 +520,7 @@ public final class AutoSequence {
      * Use with method references: .waitUntil(mySubsystem::isReady)
      */
     public AutoSequence waitUntil(BooleanSupplier condition) {
-        steps.add(Commands.waitUntil(condition).withName("waitUntil"));
+        steps.add(Command.waitUntil(condition).named("waitUntil"));
         return this;
     }
 
@@ -530,37 +546,53 @@ public final class AutoSequence {
      * Used internally by parallel/race/deadline so only the root build() logs timing.
      */
     Command buildRaw() {
-        return Commands.sequence(steps.toArray(Command[]::new));
+        if (steps.isEmpty()) {
+            return Command.noRequirements(coroutine -> {}).named("empty");
+        }
+        return Command.sequence(steps.toArray(Command[]::new)).withAutomaticName();
     }
 
     /**
      * Builds the final autonomous Command.
      * Call this at the END of every routine's build() method.
-     * Per-step telemetry is only active when .withDebug() was called.
+     *
+     * The auto timer starts automatically as the first step. Per-step
+     * telemetry is only active when .withDebug() was called.
      */
     public Command build() {
-        if (!debugEnabled) {
-            return buildRaw();
-        }
-        Command[] timedSteps = new Command[steps.size()];
+        List<Command> rootSteps = new ArrayList<>();
+        rootSteps.add(startTimerCommand());
         for (int i = 0; i < steps.size(); i++) {
-            final Command step = steps.get(i);
-            final String key   = String.format("Auto/Step%02d_%s", i, sanitize(step.getName()));
-            final double[] t   = { 0.0 };
-            timedSteps[i] = step
-                .beforeStarting(() -> {
-                    t[0] = autoTimer.get();
-                    Telemetry.set(key + "/Active",    true);
-                    Telemetry.set(key + "/StartTime", t[0]);
-                })
-                .finallyDo(interrupted -> {
-                    double dur = autoTimer.get() - t[0];
-                    Telemetry.set(key + "/Active",      false);
-                    Telemetry.set(key + "/Duration",    dur);
-                    Telemetry.set(key + "/Interrupted", interrupted);
-                });
+            Command step = steps.get(i);
+            rootSteps.add(debugEnabled
+                ? timed(step, String.format("Auto/Step%02d_%s", i, sanitize(step.name())))
+                : step);
         }
-        return Commands.sequence(timedSteps);
+        return Command.sequence(rootSteps.toArray(Command[]::new)).withAutomaticName();
+    }
+
+    /**
+     * Wraps a step so it publishes its start time, duration, and whether it was
+     * interrupted. Keeps the step's requirements and name.
+     */
+    private Command timed(Command step, String key) {
+        double[] startTime = { 0.0 };
+        return Command.requiring(step.requirements())
+            .executing(coroutine -> {
+                startTime[0] = autoTimer.get();
+                Telemetry.set(key + "/Active",    true);
+                Telemetry.set(key + "/StartTime", startTime[0]);
+                coroutine.await(step);
+                finishTimed(key, startTime[0], false);
+            })
+            .whenCanceled(() -> finishTimed(key, startTime[0], true))
+            .named(step.name());
+    }
+
+    private void finishTimed(String key, double startTime, boolean interrupted) {
+        Telemetry.set(key + "/Active",      false);
+        Telemetry.set(key + "/Duration",    autoTimer.get() - startTime);
+        Telemetry.set(key + "/Interrupted", interrupted);
     }
 
     private static String sanitize(String name) {

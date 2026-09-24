@@ -152,15 +152,36 @@ How the pieces fit:
 
 **Why button bindings stay in `Robot.java`:** with Commands v2, a binding can never be removed. If an OpMode created bindings, then every time you selected it again, it would add *another* copy.
 
+> **Update (Commands v3):** 1507Base has since moved to Commands v3 (see step 8). v3 ties bindings to the OpMode that creates them and removes them automatically, so the driver bindings now live in `DriverTeleop`.
+
 The Xbox controller class was also replaced by a generic `CommandGamepad`. Buttons are named by position: `a()` is now `faceDown()`.
 
 ---
+
+## 8. Commands v3 (`Move to Commands v3`)
+
+WPILib 2027 ships a new command framework, **Commands v3**, alongside the old one (v2). A project can use only one. We moved to v3 even though it is still alpha and may change, because it records far more about every command (useful for match debugging) and fits the OpMode framework.
+
+| v2 | v3 |
+|---|---|
+| `SubsystemBase` | `Mechanism` (our `Subsystem1507` implements it) |
+| `run(() -> ...)` / `runOnce(...)` | `runRepeatedly(() -> ...)` / `run(coroutine -> ...)` |
+| `initialize` / `execute` / `isFinished` / `end` | One function that reads top to bottom, with `coroutine.yield()` in every loop |
+| `.finallyDo(...)` | Code after the loop (finished) + `.whenCanceled(...)` (interrupted) |
+| `.withName(...)` optional | `.named(...)` **required** on every command |
+| `Commands.sequence/parallel/race/deadline` | `Command.sequence/parallel/race`, deadline = `Command.parallel(d).optional(others)` |
+| Bindings live forever | Bindings made in an OpMode are removed when another OpMode is selected |
+| Commands canceled on disable | Not automatic in v3; `LoggedRobot` cancels everything on disable |
+| `CommandBuilder` (ours) | Removed. v3 covers it. |
+
+The one v3 trap: **a loop inside a command must call `coroutine.yield()`**, or the whole robot program freezes. For "do this every loop until interrupted," use `runRepeatedly(...)`, which yields for you.
+
+`CommandsV3PatternsTest` runs the patterns we rely on through the real v3 scheduler, so a WPILib update that changes their behavior fails the build.
 
 ## Still to do
 
 - **QuestNav**: restore it when a 2027 build ships (expected at kickoff).
 - **Data logging and match replay**: next project. We'll compare AdvantageKit, WPILib's new Telemetry/Epilogue, and CTRE hoot logs, with a focus on battery and current logging to track down brownouts.
-- **Commands v3**: WPILib's new command framework. We decide later whether to adopt it.
 - **CAN port**: confirm which physical SystemCore port (`CAN_S0`–`CAN_S4`) the swerve is wired to, and update `Constants.CAN_BUS`.
 
 ## Checklist: doing this yourself next year

@@ -8,17 +8,31 @@
 
 package org.team1507.lib.core.framework;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.command3.Mechanism;
+import org.wpilib.command3.Scheduler;
 import org.wpilib.driverstation.DriverStationErrors;
-import org.wpilib.command2.SubsystemBase;
+import org.wpilib.framework.RobotBase;
 
 import org.team1507.lib.core.logging.Telemetry;
 
 /**
  * Base class for all Team 1507 subsystems.
  *
- * <p>Registers a subsystem name with WPILib (used by dashboards and the
- * command scheduler) and provides two tools for telemetry:
+ * <p>2027: a subsystem is a Commands v3 {@link Mechanism}. Commands that use it
+ * are created with {@code run(...)} / {@code runRepeatedly(...)} and must be
+ * named with {@code .named("Subsystem.action")}.
+ *
+ * <p>Mechanisms have no built-in {@code periodic()} in Commands v3, so this
+ * class registers {@link #periodic()} (and {@link #simulationPeriodic()} in
+ * simulation) with the scheduler. They run every loop, before any commands,
+ * the same as v2 subsystems did.
+ *
+ * <p>It also provides two tools for telemetry:
  *
  * <ul>
  *   <li>{@link #key(String)} — builds the fully-qualified NT path for a child
@@ -41,15 +55,44 @@ import org.team1507.lib.core.logging.Telemetry;
  *   log("Stalled", isStalled());
  * </pre>
  */
-public abstract class Subsystem1507 extends SubsystemBase {
+public abstract class Subsystem1507 implements Mechanism {
+
+    /** Every Subsystem1507 ever constructed, in construction order. */
+    private static final List<Subsystem1507> ALL = new ArrayList<>();
+
+    private final String name;
 
     /**
      * @param name subsystem name — used as the NT root for all telemetry
-     *             produced by this subsystem and its motors.
+     *             produced by this subsystem and its motors, and as the
+     *             mechanism name shown in command logs.
      */
     protected Subsystem1507(String name) {
-        setName(name); // stored and returned by SubsystemBase.getName()
+        this.name = name;
+        ALL.add(this);
+        Scheduler.getDefault().addPeriodic(() -> {
+            periodic();
+            if (RobotBase.isSimulation()) {
+                simulationPeriodic();
+            }
+        });
     }
+
+    /** Returns every subsystem on the robot (used by the failsafe and logging). */
+    public static List<Subsystem1507> all() {
+        return Collections.unmodifiableList(ALL);
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    /** Runs every robot loop, before commands. Override to read sensors and log. */
+    public void periodic() {}
+
+    /** Runs every robot loop in simulation only, after {@link #periodic()}. */
+    public void simulationPeriodic() {}
 
     // =========================================================================
     // Telemetry helpers

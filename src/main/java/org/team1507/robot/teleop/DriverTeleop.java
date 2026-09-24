@@ -10,37 +10,34 @@ package org.team1507.robot.teleop;
 
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.util.MathUtil;
-import org.wpilib.opmode.PeriodicOpMode;
+import org.wpilib.opmode.OpMode;
 import org.wpilib.opmode.Teleop;
 
 import org.team1507.robot.Robot;
+import org.team1507.robot.RobotBehaviors;
 import org.team1507.robot.subsystems.Swerve;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DriverTeleop
 //
-// The match teleop mode (2027 OpMode framework). The Driver Station lists every
-// @Teleop class in its teleop drop-down.
+// The match teleop mode (2027 OpMode framework, Commands v3). The Driver
+// Station lists every @Teleop class in its teleop drop-down.
 //
-// start() gives the driver joystick control of swerve; end() takes it away again
-// so nothing drives the robot outside teleop.
-//
-// Button bindings (brake, failsafe, zero heading) live in Robot.java, NOT here:
-// with Commands v2 a binding is never removed, so creating bindings in an OpMode
-// would add a duplicate every time the mode is selected again.
+// Everything is set up in the constructor, which WPILib runs when this mode is
+// SELECTED on the Driver Station. Commands v3 ties the default command and the
+// button bindings made here to this OpMode: they work while it is selected
+// (enabled or disabled) and are removed automatically when another OpMode is
+// selected. There is nothing to clean up.
 // ─────────────────────────────────────────────────────────────────────────────
 @Teleop(name = "Driver")
-public final class DriverTeleop extends PeriodicOpMode {
-
-    private final Robot robot;
+public final class DriverTeleop implements OpMode {
 
     /** WPILib passes in the Robot instance when this mode is selected. */
     public DriverTeleop(Robot robot) {
-        this.robot = robot;
-    }
 
-    @Override
-    public void start() {
+        // ── Driving ────────────────────────────────────────────────────────
+
+        // Joystick driving replaces swerve's idle default while this mode is selected.
         robot.swerve.setDefaultCommand(
             robot.swerve.driveCommand(() -> {
                 double x   = MathUtil.applyDeadband(-robot.driver.getLeftY(),  0.12);
@@ -55,10 +52,17 @@ public final class DriverTeleop extends PeriodicOpMode {
                 ).toRobotRelative(robot.swerve.getHeading());
             })
         );
-    }
 
-    @Override
-    public void end() {
-        robot.swerve.removeDefaultCommand();
+        // ── Driver — swerve utilities ──────────────────────────────────────
+
+        // Swerve brake — hold Start to lock wheels in X pattern, release to resume driving
+        robot.driver.start().whileTrue(robot.swerve.brakeCommand());
+
+        // Failsafe — interrupts every subsystem command (see RobotBehaviors for details)
+        robot.driver.back().onTrue(RobotBehaviors.failsafe());
+
+        // Point the robot toward the opposing alliance wall, then press the bottom
+        // face button (A on Xbox) to zero the gyro. Works while disabled, too.
+        robot.driver.faceDown().onTrue(robot.swerve.zeroHeadingCommand());
     }
 }

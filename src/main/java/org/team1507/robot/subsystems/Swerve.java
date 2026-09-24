@@ -30,7 +30,7 @@ import org.wpilib.units.measure.Voltage;
 import org.wpilib.driverstation.DriverStationErrors;
 import org.wpilib.framework.RobotBase;
 import org.wpilib.system.Timer;
-import org.wpilib.command2.Command;
+import org.wpilib.command3.Command;
 
 import static org.wpilib.units.Units.*;
 
@@ -933,17 +933,34 @@ public final class Swerve extends Subsystem1507 {
     }
 
     // ╔══════════════════════════════════════════════════════════════════╗
-    // ║                        COMMANDS                                  ║
+    // ║                        COMMANDS (Commands v3)                    ║
     // ║                                                                  ║
     // ║  All swerve commands live here, directly on the subsystem.       ║
-    // ║  They use run() / runOnce() / andThen() from SubsystemBase,      ║
-    // ║  which automatically registers this subsystem as a requirement.  ║
+    // ║  run(...) and runRepeatedly(...) come from Mechanism and make    ║
+    // ║  this subsystem the command's requirement automatically.         ║
+    // ║                                                                  ║
+    // ║  How a v3 command reads, top to bottom:                          ║
+    // ║                                                                  ║
+    // ║    return run(coroutine -> {                                     ║
+    // ║        // setup: runs once when the command starts               ║
+    // ║        while (!done()) {                                         ║
+    // ║            drive(...);          // runs every loop               ║
+    // ║            coroutine.yield();   // REQUIRED in every loop        ║
+    // ║        }                                                         ║
+    // ║        stop();                  // runs when it finishes         ║
+    // ║    })                                                            ║
+    // ║    .whenCanceled(this::stop)    // runs if it is interrupted     ║
+    // ║    .named("Swerve.myCommand");  // every command needs a name    ║
+    // ║                                                                  ║
+    // ║  Forgetting coroutine.yield() inside a loop freezes the whole    ║
+    // ║  robot program. For "do this every loop until interrupted",      ║
+    // ║  use runRepeatedly(() -> ...), which yields for you.             ║
     // ║                                                                  ║
     // ║  SECTIONS:                                                       ║
     // ║    1. Basic Drive (teleop)                                       ║
     // ║    2. Heading Control (pointing, aiming)                         ║
     // ║    3. Autonomous Movement (driveToPoint, moveThroughPose, etc.)  ║
-    // ║    4. Utility (brake, resetPose)                                 ║
+    // ║    4. Utility (brake)                                            ║
     // ╚══════════════════════════════════════════════════════════════════╝
 
 
@@ -952,58 +969,78 @@ public final class Swerve extends Subsystem1507 {
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Default teleop drive command.
-     * Accepts a ChassisVelocities supplier so Robot.java can compute speeds
-     * from controller inputs each loop iteration.
-     *
-     *   swerve.setDefaultCommand(swerve.driveCommand(() -> computeSpeeds()));
+     * What the drivetrain does when no other command is using it: stop the
+     * modules and hold. Robot.java sets this as the default command, and
+     * DriverTeleop replaces it with joystick driving while teleop is selected.
      */
-    public Command driveCommand(Supplier<ChassisVelocities> speeds) {
-        return run(() -> drive(speeds.get()))
-            .finallyDo(interrupted -> stop())
-            .withName("Swerve.drive");
+    @Override
+    public Command idle() {
+        return run(coroutine -> {
+            stop();
+            coroutine.park(); // stay "running" (and stopped) until something else needs swerve
+        })
+        .withPriority(Command.LOWEST_PRIORITY)
+        .named("Swerve.idle");
     }
 
     /**
-     * Drives at fixed ChassisVelocities. Used by auto commands.
+     * Teleop drive command.
+     * Accepts a ChassisVelocities supplier so the OpMode can compute velocities
+     * from controller inputs each loop iteration.
+     *
+     *   swerve.setDefaultCommand(swerve.driveCommand(() -> computeVelocities()));
      */
-    public Command driveCommand(ChassisVelocities speeds) {
-        return run(() -> drive(speeds))
-            .finallyDo(interrupted -> stop())
-            .withName("Swerve.driveFixed");
+    public Command driveCommand(Supplier<ChassisVelocities> velocities) {
+        return runRepeatedly(() -> drive(velocities.get()))
+            .whenCanceled(this::stop)
+            .named("Swerve.drive");
+    }
+
+    /**
+     * Drives at fixed ChassisVelocities until interrupted. Used by auto commands.
+     */
+    public Command driveCommand(ChassisVelocities velocities) {
+        return runRepeatedly(() -> drive(velocities))
+            .whenCanceled(this::stop)
+            .named("Swerve.driveFixed");
     }
 
     /**
      * Drives at the given ChassisVelocities for a fixed number of seconds, then stops.
-     * Called by AutoBuilder.driveForTime().
      */
-    public Command driveForTime(ChassisVelocities speeds, double seconds) {
-        return run(() -> drive(speeds))
-            .withTimeout(seconds)
-            .finallyDo(interrupted -> stop())
-            .withName("Swerve.driveForTime");
+    public Command driveForTime(ChassisVelocities velocities, double seconds) {
+        return run(coroutine -> {
+            double endTime = Timer.getTimestamp() + seconds;
+            while (Timer.getTimestamp() < endTime) {
+                drive(velocities);
+                coroutine.yield();
+            }
+            stop();
+        })
+        .whenCanceled(this::stop)
+        .named("Swerve.driveForTime");
     }
 
-    /** Stops all modules. Instantaneous (runOnce). */
+    /** Stops all modules. Finishes immediately. */
     public Command stopCommand() {
-        return runOnce(this::stop)
-            .withName("Swerve.stop");
+        return run(coroutine -> stop())
+            .named("Swerve.stop");
     }
 
     /**
      * Zeroes the gyro so the robot's current facing direction becomes field-forward (0°).
-     * Bind to a controller button (left bumper is standard) and press while the robot
+     * Bound to the bottom face button in DriverTeleop. Press while the robot
      * is physically pointing toward the opposing alliance wall.
      */
     public Command zeroHeadingCommand() {
-        return runOnce(this::zeroHeading)
-            .withName("Swerve.zeroHeading");
+        return run(coroutine -> zeroHeading())
+            .named("Swerve.zeroHeading");
     }
 
-    /** Resets the robot's pose estimate to a given field position. */
+    /** Resets the robot's pose estimate to a given field position. Finishes immediately. */
     public Command resetPoseCommand(Pose2d pose) {
-        return runOnce(() -> resetPose(pose))
-            .withName("Swerve.resetPose");
+        return run(coroutine -> resetPose(pose))
+            .named("Swerve.resetPose");
     }
 
 
@@ -1011,64 +1048,58 @@ public final class Swerve extends Subsystem1507 {
     // 2. HEADING CONTROL
     // ─────────────────────────────────────────────────────────────────
 
+    /** True when the robot's heading is within HEADING_TOLERANCE_DEG of the desired heading. */
+    private boolean isFacing(Rotation2d desired) {
+        return Math.abs(MathUtil.angleModulus(
+            getPose().getRotation().minus(desired).getRadians()
+        )) < Math.toRadians(HEADING_TOLERANCE_DEG);
+    }
+
     /**
      * Rotates the robot in place until it faces a fixed field position.
      *
      * The robot looks toward the XY of targetPose — the target's own rotation
-     * is ignored. Finishes within HEADING_TOLERANCE_DEG (5°).
+     * is ignored. Finishes within HEADING_TOLERANCE_DEG.
      *
      * Use case: snap to face the speaker/hub before shooting.
      *
      * @param targetPose  the field position to face toward
      */
     public Command pointToTarget(Pose2d targetPose) {
-        return run(() -> {
-            Pose2d current     = getPose();
-            Rotation2d desired = computeHeadingToTarget(current, targetPose);
-            drive(new ChassisVelocities(0.0, 0.0,
-                computeOmega(current.getRotation(), desired)));
-        })
-        .until(() -> {
-            Pose2d current     = getPose();
-            Rotation2d desired = computeHeadingToTarget(current, targetPose);
-            return Math.abs(MathUtil.angleModulus(
-                current.getRotation().minus(desired).getRadians()
-            )) < Math.toRadians(HEADING_TOLERANCE_DEG);
-        })
-        .finallyDo(interrupted -> stop())
-        .withName("Swerve.pointToTarget");
+        return pointToTarget(() -> targetPose, "Swerve.pointToTarget");
     }
 
     /**
-     * Rotates the robot in place to continuously face a dynamic target.
+     * Rotates the robot in place to face a dynamic target.
      * The target pose is re-read from the supplier every loop.
+     * Finishes within HEADING_TOLERANCE_DEG.
      *
-     * Use case: continuously track a moving vision target or live shooter setpoint.
+     * Use case: track a moving vision target or live shooter setpoint.
      *
      * @param targetPoseSupplier  supplier that returns the current target pose
      */
     public Command pointToTarget(Supplier<Pose2d> targetPoseSupplier) {
-        return run(() -> {
-            Pose2d current     = getPose();
-            Rotation2d desired = computeHeadingToTarget(current, targetPoseSupplier.get());
-            drive(new ChassisVelocities(0.0, 0.0,
-                computeOmega(current.getRotation(), desired)));
+        return pointToTarget(targetPoseSupplier, "Swerve.pointToTargetDynamic");
+    }
+
+    private Command pointToTarget(Supplier<Pose2d> targetPoseSupplier, String name) {
+        return run(coroutine -> {
+            while (!isFacing(computeHeadingToTarget(getPose(), targetPoseSupplier.get()))) {
+                Pose2d current = getPose();
+                Rotation2d desired = computeHeadingToTarget(current, targetPoseSupplier.get());
+                drive(new ChassisVelocities(0.0, 0.0, computeOmega(current.getRotation(), desired)));
+                coroutine.yield();
+            }
+            stop();
         })
-        .until(() -> {
-            Pose2d current     = getPose();
-            Rotation2d desired = computeHeadingToTarget(current, targetPoseSupplier.get());
-            return Math.abs(MathUtil.angleModulus(
-                current.getRotation().minus(desired).getRadians()
-            )) < Math.toRadians(HEADING_TOLERANCE_DEG);
-        })
-        .finallyDo(interrupted -> stop())
-        .withName("Swerve.pointToTargetDynamic");
+        .whenCanceled(this::stop)
+        .named(name);
     }
 
     /**
      * Rotates the robot in place to match a specific heading in degrees.
      *
-     * Finishes within HEADING_TOLERANCE_DEG (5°).
+     * Finishes within HEADING_TOLERANCE_DEG.
      *
      * @param angleDeg  desired heading in degrees (e.g. 90 = left, 180 = backwards)
      */
@@ -1083,22 +1114,21 @@ public final class Swerve extends Subsystem1507 {
      * not a direction toward a field location. Useful for correcting heading
      * drift after moveThroughPose, or for aligning with a wall.
      *
-     * Finishes within HEADING_TOLERANCE_DEG (5°).
+     * Finishes within HEADING_TOLERANCE_DEG.
      *
      * @param targetHeading  the desired heading
      */
     public Command changeHeading(Rotation2d targetHeading) {
-        return run(() -> {
-            double omega = computeOmega(getPose().getRotation(), targetHeading);
-            drive(new ChassisVelocities(0.0, 0.0, omega));
+        return run(coroutine -> {
+            while (!isFacing(targetHeading)) {
+                double omega = computeOmega(getPose().getRotation(), targetHeading);
+                drive(new ChassisVelocities(0.0, 0.0, omega));
+                coroutine.yield();
+            }
+            stop();
         })
-        .until(() ->
-            Math.abs(MathUtil.angleModulus(
-                getPose().getRotation().minus(targetHeading).getRadians()
-            )) < Math.toRadians(HEADING_TOLERANCE_DEG)
-        )
-        .finallyDo(interrupted -> stop())
-        .withName("Swerve.changeHeading");
+        .whenCanceled(this::stop)
+        .named("Swerve.changeHeading");
     }
 
     /**
@@ -1115,7 +1145,7 @@ public final class Swerve extends Subsystem1507 {
      * Drives with driver-supplied translation while automatically aiming at a target.
      *
      * Includes motion compensation — the aim leads the robot's velocity so projectiles
-     * arrive correctly even while moving. Tune AIM_LEAD_TIME at the top of this file.
+     * arrive correctly even while moving. Tune AIM_LEAD_TIME in Constants.kSwerve.kTuning.
      *
      * This command NEVER finishes on its own. Bind with whileTrue() so it cancels
      * when the button is released, returning control to the default drive command.
@@ -1131,7 +1161,7 @@ public final class Swerve extends Subsystem1507 {
         Supplier<Double> xSupplier,
         Supplier<Double> ySupplier
     ) {
-        return run(() -> {
+        return runRepeatedly(() -> {
             Pose2d currentPose  = getPose();
             Pose2d targetPose   = targetPoseSupplier.get();
             ChassisVelocities field = getFieldRelativeSpeeds();
@@ -1161,8 +1191,8 @@ public final class Swerve extends Subsystem1507 {
                 xSupplier.get(), ySupplier.get(), omega
             ).toRobotRelative(currentPose.getRotation()));
         })
-        .finallyDo(interrupted -> stop())
-        .withName("Swerve.maintainHeadingToTarget");
+        .whenCanceled(this::stop)
+        .named("Swerve.maintainHeadingToTarget");
     }
 
 
@@ -1171,64 +1201,59 @@ public final class Swerve extends Subsystem1507 {
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Drives toward a target pose at a fixed velocity and stops when within
-     * ARRIVE_THRESHOLD (5 cm) of the target XY.
+     * Drives toward a target pose and finishes within ARRIVE_THRESHOLD (5 cm)
+     * of the target XY. Slows down near the target (APF deceleration ramp).
      *
      * Rotation toward the target pose's heading is corrected proportionally
      * throughout the move.
      *
+     * Stall detection: if the robot moves less than STALL_THRESHOLD for
+     * STALL_TIMEOUT seconds (e.g. pushed against a wall), the command gives up
+     * so the auto can continue.
+     *
      * @param targetPose  the field pose to drive to
-     * @param velocity    translation speed (m/s)
+     * @param velocity    cruise translation speed (m/s)
      * @param stopAtEnd   true = stop when done; false = leave velocity applied (for chaining)
      */
     public Command driveToPoint(Pose2d targetPose, double velocity, boolean stopAtEnd) {
-        // stall[0,1] = last XY where movement was detected; stall[2] = timestamp
-        final double[] stall = new double[3];
+        return run(coroutine -> {
+            // Stall detection: where the robot last made progress, and when.
+            Translation2d lastProgressPoint = getPose().getTranslation();
+            double lastProgressTime = Timer.getTimestamp();
 
-        return runOnce(() -> {
-            Pose2d p = getPose();
-            stall[0] = p.getX();
-            stall[1] = p.getY();
-            stall[2] = Timer.getTimestamp();
-        })
-        .andThen(run(() -> {
-            Pose2d current     = getPose();
-            Rotation2d heading = current.getRotation();
+            while (true) {
+                Pose2d current = getPose();
+                Translation2d toTarget = targetPose.getTranslation().minus(current.getTranslation());
+                double distance = toTarget.getNorm();
 
-            double dx       = targetPose.getX() - current.getX();
-            double dy       = targetPose.getY() - current.getY();
-            double distance = Math.hypot(dx, dy);
+                // Done: arrived
+                if (distance < ARRIVE_THRESHOLD) {
+                    break;
+                }
 
-            double apfSpeed = Math.min(ARRIVE_KP * distance, velocity);
-            double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
-            double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
+                // Done: stalled (not moving for STALL_TIMEOUT seconds)
+                if (current.getTranslation().getDistance(lastProgressPoint) > STALL_THRESHOLD) {
+                    lastProgressPoint = current.getTranslation();
+                    lastProgressTime = Timer.getTimestamp();
+                } else if (Timer.getTimestamp() - lastProgressTime > STALL_TIMEOUT) {
+                    break;
+                }
 
-            driveRobotRelative(new ChassisVelocities(
-                ux * apfSpeed, uy * apfSpeed,
-                computeOmega(heading, targetPose.getRotation())
-            ).toRobotRelative(heading));
+                // Drive toward the target, slowing down as it gets close
+                double speed = Math.min(ARRIVE_KP * distance, velocity);
+                driveRobotRelative(new ChassisVelocities(
+                    toTarget.getX() / distance * speed,
+                    toTarget.getY() / distance * speed,
+                    computeOmega(current.getRotation(), targetPose.getRotation())
+                ).toRobotRelative(current.getRotation()));
 
-            // Advance stall checkpoint whenever the robot makes meaningful progress
-            double moveDx = Math.abs(current.getX() - stall[0]);
-            double moveDy = Math.abs(current.getY() - stall[1]);
-            if (moveDx > STALL_THRESHOLD || moveDy > STALL_THRESHOLD) {
-                stall[0] = current.getX();
-                stall[1] = current.getY();
-                stall[2] = Timer.getTimestamp();
+                coroutine.yield();
             }
-        }))
-        .until(() -> {
-            Pose2d current = getPose();
-            if (current.getTranslation().getDistance(targetPose.getTranslation()) < ARRIVE_THRESHOLD)
-                return true;
-            double dx = Math.abs(current.getX() - stall[0]);
-            double dy = Math.abs(current.getY() - stall[1]);
-            return dx < STALL_THRESHOLD
-                && dy < STALL_THRESHOLD
-                && (Timer.getTimestamp() - stall[2]) > STALL_TIMEOUT;
+
+            if (stopAtEnd) stop();
         })
-        .finallyDo(interrupted -> { if (stopAtEnd) stop(); })
-        .withName("Swerve.driveToPoint");
+        .whenCanceled(() -> { if (stopAtEnd) stop(); })
+        .named("Swerve.driveToPoint");
     }
 
     /**
@@ -1239,89 +1264,76 @@ public final class Swerve extends Subsystem1507 {
      * paths through multiple chained waypoints.
      *
      * Rotation is controlled by a PID toward the target pose's heading.
-     * Tune THETA_KP / KI / KD and MOVE_THROUGH_DEFAULT_RADIUS at the top of this file.
+     * Tune THETA_KP / KI / KD and MOVE_THROUGH_DEFAULT_RADIUS in Constants.kSwerve.kTuning.
      *
-     * Stall detection prevents the robot from getting permanently stuck if
-     * it hits an obstacle — the command auto-exits after STALL_TIMEOUT seconds
-     * of insufficient movement.
+     * Gives up (so the auto can continue) if the robot stalls for STALL_TIMEOUT
+     * seconds, or runs longer than MAX_MOVETHROUGH_SECONDS in total.
      *
      * @param targetPose  the waypoint pose to pass through
      * @param maxSpeed    translation speed (m/s)
      * @param maxAngular  maximum rotation speed (rad/s), clamps PID output
      * @param passRadius  distance to consider the waypoint "passed" (meters)
      */
-    @SuppressWarnings("resource")
     public Command moveThroughPose(
         Pose2d targetPose,
         double maxSpeed,
         double maxAngular,
         double passRadius
     ) {
-        PIDController thetaPID = new PIDController(THETA_KP, THETA_KI, THETA_KD);
-        thetaPID.enableContinuousInput(-Math.PI, Math.PI);
+        return run(coroutine -> {
+            PIDController thetaPID = new PIDController(THETA_KP, THETA_KI, THETA_KD);
+            thetaPID.enableContinuousInput(-Math.PI, Math.PI);
 
-        // stall[0,1] = last XY where movement was detected; stall[2] = stall timestamp; stall[3] = command start
-        final double[] stall = new double[4];
+            double startTime = Timer.getTimestamp();
+            Translation2d lastProgressPoint = getPose().getTranslation();
+            double lastProgressTime = startTime;
 
-        return runOnce(() -> {
-            Pose2d p = getPose();
-            stall[0] = p.getX();
-            stall[1] = p.getY();
-            stall[2] = Timer.getTimestamp();
-            stall[3] = stall[2]; // wall-clock start for hard deadline
-            thetaPID.reset();
-        })
-        .andThen(run(() -> {
-            Pose2d current = getPose();
+            while (true) {
+                Pose2d current = getPose();
+                double now = Timer.getTimestamp();
 
-            // Normalized direction vector toward waypoint
-            double dx       = targetPose.getX() - current.getX();
-            double dy       = targetPose.getY() - current.getY();
-            double distance = Math.hypot(dx, dy);
-            double dirX     = dx / (distance + 1e-9);
-            double dirY     = dy / (distance + 1e-9);
+                // Done: robot entered the pass radius
+                if (current.getTranslation().getDistance(targetPose.getTranslation()) < passRadius) {
+                    break;
+                }
 
-            // PID rotation toward target heading, clamped to maxAngular
-            double omega = Math.clamp(
-                thetaPID.calculate(
-                    current.getRotation().getRadians(),
-                    targetPose.getRotation().getRadians()
-                ),
-                -maxAngular, maxAngular
-            );
+                // Done: stalled (not moving for STALL_TIMEOUT seconds)
+                if (current.getTranslation().getDistance(lastProgressPoint) > STALL_THRESHOLD) {
+                    lastProgressPoint = current.getTranslation();
+                    lastProgressTime = now;
+                } else if (now - lastProgressTime > STALL_TIMEOUT) {
+                    break;
+                }
 
-            driveRobotRelative(new ChassisVelocities(
-                dirX * maxSpeed, dirY * maxSpeed, omega
-            ).toRobotRelative(current.getRotation()));
+                // Done: hard time limit — catches oscillation that keeps resetting the stall timer
+                if (now - startTime > MAX_MOVETHROUGH_SECONDS) {
+                    break;
+                }
 
-            // Update stall tracker if the robot is actually moving
-            double moveDx = Math.abs(current.getX() - stall[0]);
-            double moveDy = Math.abs(current.getY() - stall[1]);
-            if (moveDx > STALL_THRESHOLD || moveDy > STALL_THRESHOLD) {
-                stall[0] = current.getX();
-                stall[1] = current.getY();
-                stall[2] = Timer.getTimestamp();
+                // Normalized direction toward the waypoint, at constant speed
+                double dx       = targetPose.getX() - current.getX();
+                double dy       = targetPose.getY() - current.getY();
+                double distance = Math.hypot(dx, dy);
+
+                // PID rotation toward target heading, clamped to maxAngular
+                double omega = Math.clamp(
+                    thetaPID.calculate(
+                        current.getRotation().getRadians(),
+                        targetPose.getRotation().getRadians()
+                    ),
+                    -maxAngular, maxAngular
+                );
+
+                driveRobotRelative(new ChassisVelocities(
+                    dx / distance * maxSpeed, dy / distance * maxSpeed, omega
+                ).toRobotRelative(current.getRotation()));
+
+                coroutine.yield();
             }
-        }))
-        .until(() -> {
-            Pose2d current = getPose();
-
-            // Done: robot entered pass radius
-            if (current.getTranslation().getDistance(targetPose.getTranslation()) < passRadius)
-                return true;
-
-            // Done: stall timeout expired (robot not moving)
-            double dx = Math.abs(current.getX() - stall[0]);
-            double dy = Math.abs(current.getY() - stall[1]);
-            if (dx < STALL_THRESHOLD && dy < STALL_THRESHOLD
-                    && (Timer.getTimestamp() - stall[2]) > STALL_TIMEOUT)
-                return true;
-
-            // Done: hard wall-clock deadline — catches oscillation that keeps resetting the stall timer
-            return (Timer.getTimestamp() - stall[3]) > MAX_MOVETHROUGH_SECONDS;
+            stop();
         })
-        .finallyDo(interrupted -> stop())
-        .withName("Swerve.moveThroughPose");
+        .whenCanceled(this::stop)
+        .named("Swerve.moveThroughPose");
     }
 
     /**
@@ -1335,52 +1347,46 @@ public final class Swerve extends Subsystem1507 {
     /**
      * Drives forward a fixed distance along the robot's current heading.
      *
-     * The target pose is computed from the robot's starting position and heading
-     * at the moment the command initializes. Heading is held with proportional
-     * correction throughout. Finishes within ARRIVE_THRESHOLD (5 cm).
+     * The target is computed from the robot's position and heading at the moment
+     * the command starts. Heading is held with proportional correction throughout.
+     * Finishes within ARRIVE_THRESHOLD (5 cm).
      *
      * Use case: fallback auto when vision is offline — just drive a known distance.
      *
      * @param distanceMeters  distance to drive (meters, positive = forward)
-     * @param velocity        translation speed (m/s)
+     * @param velocity        cruise translation speed (m/s)
      * @param stopAtEnd       true = stop when done
      */
     public Command driveForwardMeters(double distanceMeters, double velocity, boolean stopAtEnd) {
-        // Single-element array so the target pose computed in runOnce is accessible
-        // in the run() and until() closures without subsystem-level mutable state.
-        final Pose2d[] target = { new Pose2d() };
+        return run(coroutine -> {
+            Pose2d start = getPose();
+            Rotation2d heading = start.getRotation();
+            Translation2d target = start.getTranslation().plus(
+                new Translation2d(distanceMeters * heading.getCos(), distanceMeters * heading.getSin()));
 
-        return runOnce(() -> {
-            Pose2d current = getPose();
-            Rotation2d hdg = current.getRotation();
-            target[0] = new Pose2d(
-                current.getX() + distanceMeters * hdg.getCos(),
-                current.getY() + distanceMeters * hdg.getSin(),
-                hdg
-            );
+            while (true) {
+                Pose2d current = getPose();
+                Translation2d toTarget = target.minus(current.getTranslation());
+                double distance = toTarget.getNorm();
+
+                if (distance < ARRIVE_THRESHOLD) {
+                    break;
+                }
+
+                double speed = Math.min(ARRIVE_KP * distance, velocity);
+                driveRobotRelative(new ChassisVelocities(
+                    toTarget.getX() / distance * speed,
+                    toTarget.getY() / distance * speed,
+                    computeOmega(current.getRotation(), heading)
+                ).toRobotRelative(current.getRotation()));
+
+                coroutine.yield();
+            }
+
+            if (stopAtEnd) stop();
         })
-        .andThen(run(() -> {
-            Pose2d current = getPose();
-            Rotation2d hdg = current.getRotation();
-
-            double dx       = target[0].getX() - current.getX();
-            double dy       = target[0].getY() - current.getY();
-            double distance = Math.hypot(dx, dy);
-
-            double apfSpeed = Math.min(ARRIVE_KP * distance, velocity);
-            double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
-            double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
-
-            driveRobotRelative(new ChassisVelocities(
-                ux * apfSpeed, uy * apfSpeed,
-                computeOmega(hdg, target[0].getRotation())
-            ).toRobotRelative(hdg));
-        }))
-        .until(() ->
-            getPose().getTranslation().getDistance(target[0].getTranslation()) < ARRIVE_THRESHOLD
-        )
-        .finallyDo(interrupted -> { if (stopAtEnd) stop(); })
-        .withName("Swerve.driveForwardMeters");
+        .whenCanceled(() -> { if (stopAtEnd) stop(); })
+        .named("Swerve.driveForwardMeters");
     }
 
 
@@ -1400,8 +1406,8 @@ public final class Swerve extends Subsystem1507 {
      * Use case: hold position while shooting, resist defense, stay on a slope.
      */
     public Command brakeCommand() {
-        return run(this::brake)
-            .finallyDo(interrupted -> stop())
-            .withName("Swerve.brake");
+        return runRepeatedly(this::brake)
+            .whenCanceled(this::stop)
+            .named("Swerve.brake");
     }
 }
