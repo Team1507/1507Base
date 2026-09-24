@@ -9,7 +9,10 @@
 package org.team1507.lib.core.logging;
 
 import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.networktables.BooleanPublisher;
+import org.wpilib.networktables.DoublePublisher;
 import org.wpilib.networktables.NetworkTableInstance;
+import org.wpilib.networktables.StringPublisher;
 import org.wpilib.networktables.StructPublisher;
 import org.wpilib.system.Timer;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
@@ -39,6 +42,12 @@ import java.util.Map;
  */
 public final class Telemetry {
 
+    // Publishers are created once per key and reused. Looking an entry up by
+    // name on every call (the old getEntry(key) approach) costs a string lookup
+    // each time; with dozens of calls per loop that caused 2026 loop overruns.
+    private static final Map<String, BooleanPublisher> boolPublishers   = new HashMap<>();
+    private static final Map<String, DoublePublisher>  doublePublishers = new HashMap<>();
+    private static final Map<String, StringPublisher>  stringPublishers = new HashMap<>();
     private static final Map<String, StructPublisher<Pose2d>> posePublishers = new HashMap<>();
 
     /**
@@ -106,9 +115,9 @@ public final class Telemetry {
      * @param value boolean value to publish
      */
     public static void set(String key, boolean value) {
-        NetworkTableInstance.getDefault()
-            .getEntry(key)
-            .setBoolean(value);
+        boolPublishers
+            .computeIfAbsent(key, k -> NetworkTableInstance.getDefault().getBooleanTopic(k).publish())
+            .set(value);
     }
 
     /**
@@ -121,9 +130,9 @@ public final class Telemetry {
      * @param value string value to publish
      */
     public static void set(String key, String value) {
-        NetworkTableInstance.getDefault()
-            .getEntry(key)
-            .setString(value);
+        stringPublishers
+            .computeIfAbsent(key, k -> NetworkTableInstance.getDefault().getStringTopic(k).publish())
+            .set(value);
     }
 
     /**
@@ -136,9 +145,9 @@ public final class Telemetry {
      * @param value numeric value to publish
      */
     public static void set(String key, double value) {
-        NetworkTableInstance.getDefault()
-            .getEntry(key)
-            .setDouble(value);
+        doublePublishers
+            .computeIfAbsent(key, k -> NetworkTableInstance.getDefault().getDoubleTopic(k).publish())
+            .set(value);
     }
 
     /**

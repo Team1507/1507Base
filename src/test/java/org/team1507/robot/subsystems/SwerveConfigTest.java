@@ -17,10 +17,10 @@ import org.junit.jupiter.api.Test;
 // ─────────────────────────────────────────────────────────────────────────────
 // SwerveConfigTest
 //
-// Build-time validation of the Tuner X paste zone in Swerve.java. Runs as part
+// Build-time validation of the Tuner X paste zone in SwerveConfig.java. Runs as part
 // of `./gradlew build`, so a bad paste fails the build before it can be deployed.
 //
-// The checks themselves live in Swerve.configProblems(), so the robot runs the
+// The checks themselves live in SwerveConfig.configProblems(), so the robot runs the
 // same checks at startup and prints any problem to the Driver Station.
 //
 // What it catches (all compile fine but break the robot):
@@ -32,15 +32,15 @@ import org.junit.jupiter.api.Test;
 //   - modules in the wrong corner (kinematics order is FL, FR, BL, BR)
 //   - missing or backwards supply current limits
 //
-// TO ADD A CHECK: add it to Swerve.configProblems(), not here.
+// TO ADD A CHECK: add it to SwerveConfig.configProblems(), not here.
 // ─────────────────────────────────────────────────────────────────────────────
 class SwerveConfigTest {
 
     @Test
     void pastedSwerveConfigIsSane() {
-        List<String> problems = Swerve.configProblems();
+        List<String> problems = SwerveConfig.configProblems();
         if (!problems.isEmpty()) {
-            fail("Swerve config problems (see the Tuner X paste zone in Swerve.java):\n  - "
+            fail("Swerve config problems (see the Tuner X paste zone in SwerveConfig.java):\n  - "
                 + String.join("\n  - ", problems));
         }
     }

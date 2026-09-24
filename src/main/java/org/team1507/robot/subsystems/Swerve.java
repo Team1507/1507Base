@@ -8,306 +8,57 @@
 
 package org.team1507.robot.subsystems;
 
+import static org.wpilib.units.Units.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
-import org.wpilib.math.util.MathUtil;
-import org.wpilib.math.linalg.Matrix;
+import org.wpilib.command3.Command;
+import org.wpilib.driverstation.DriverStationErrors;
+import org.wpilib.framework.RobotBase;
 import org.wpilib.math.controller.PIDController;
 import org.wpilib.math.estimator.SwerveDrivePoseEstimator;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
-import org.wpilib.math.kinematics.*;
+import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.math.kinematics.SwerveDriveKinematics;
+import org.wpilib.math.kinematics.SwerveModulePosition;
+import org.wpilib.math.kinematics.SwerveModuleVelocity;
+import org.wpilib.math.linalg.Matrix;
 import org.wpilib.math.numbers.N1;
 import org.wpilib.math.numbers.N3;
+import org.wpilib.math.util.MathUtil;
+import org.wpilib.system.Timer;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.AngularVelocity;
-import org.wpilib.units.measure.Current;
-import org.wpilib.units.measure.Distance;
-import org.wpilib.units.measure.LinearVelocity;
-import org.wpilib.units.measure.MomentOfInertia;
-import org.wpilib.units.measure.Voltage;
-import org.wpilib.driverstation.DriverStationErrors;
-import org.wpilib.framework.RobotBase;
-import org.wpilib.system.Timer;
-import org.wpilib.command3.Command;
-
-import static org.wpilib.units.Units.*;
 
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
-import com.ctre.phoenix6.configs.CANcoderConfiguration;
-import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
-import com.ctre.phoenix6.configs.Pigeon2Configuration;
-import com.ctre.phoenix6.configs.Slot0Configs;
-import com.ctre.phoenix6.configs.TalonFXConfiguration;
-import com.ctre.phoenix6.hardware.CANcoder;
 import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.Pigeon2;
-import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
-import com.ctre.phoenix6.signals.SensorDirectionValue;
-import com.ctre.phoenix6.signals.StaticFeedforwardSignValue;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants.ClosedLoopOutputType;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants.DriveMotorArrangement;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants.SteerFeedbackType;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants.SteerMotorArrangement;
 
 import org.team1507.lib.core.framework.Subsystem1507;
-import org.team1507.lib.core.impl.ctre.CtreMotorConfigurator;
-import org.team1507.lib.core.impl.ctre.Motor1507;
 import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.swerve.SwerveModule1507;
-import org.team1507.lib.core.swerve.SwerveModule1507.MathConfig;
 import org.team1507.lib.core.util.Alliance;
-import org.team1507.lib.core.util.MotorConfig;
-import org.team1507.lib.core.util.MotorConfig.ControlMode;
 import org.team1507.robot.Constants;
 import org.team1507.robot.Constants.kSwerve;
+
 import static org.team1507.robot.Constants.kSwerve.kTuning.*;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Swerve
+//
+// How the drivetrain DRIVES: odometry and pose estimation, driving, headings,
+// and every swerve command (teleop, heading control, auto movement).
+//
+// This robot's drivetrain HARDWARE (CAN IDs, offsets, gear ratios, gains, the
+// Tuner X paste zone) lives in SwerveConfig.java.
+// ─────────────────────────────────────────────────────────────────────────────
 public final class Swerve extends Subsystem1507 {
-
-    // ╔══════════════════════════════════════════════════════════════════╗
-    // ║                 TUNER X PASTE ZONE — TunerConstants              ║
-    // ║                                                                  ║
-    // ║  The fields below use the SAME names, types, and units as the    ║
-    // ║  TunerConstants.java file that Phoenix Tuner X's swerve project  ║
-    // ║  generator creates. To update from Tuner X:                      ║
-    // ║                                                                  ║
-    // ║   1. Generate the project in Tuner X and open TunerConstants.java║
-    // ║   2. Copy from "private static final Slot0Configs steerGains"    ║
-    // ║      down to the last module's kBackRightYPos line.              ║
-    // ║   3. Paste it over the matching lines below.                     ║
-    // ║   4. Do NOT paste these generator lines; we don't use them:      ║
-    // ║        kCANBus            (bus is Constants.CAN_BUS)             ║
-    // ║        DrivetrainConstants, ConstantCreator, the FrontLeft/...   ║
-    // ║        SwerveModuleConstants objects, createDrivetrain(), and    ║
-    // ║        the TunerSwerveDrivetrain class                           ║
-    // ║   5. Keep TUNED gains: if SysId has replaced the generator's     ║
-    // ║      default steerGains/driveGains, don't paste over them.       ║
-    // ║   6. ./gradlew build. The checks in the Swerve constructor fail  ║
-    // ║      with a clear message if the paste picked a setting we       ║
-    // ║      don't support (TorqueCurrentFOC output, TalonFXS motors).   ║
-    // ║                                                                  ║
-    // ║  Units match CTRE exactly:                                       ║
-    // ║    driveGains: volts per DRIVE MOTOR rotation/sec                ║
-    // ║    steerGains: volts per MODULE rotation (CANcoder)              ║
-    // ║    kEncoderOffset: CANcoder MagnetOffset, written to the device  ║
-    // ║                                                                  ║
-    // ║  Settings the generator doesn't have (supply limits, FOC) live   ║
-    // ║  in the "1507 ADDITIONS" block after this one. Pasting never     ║
-    // ║  touches them.                                                   ║
-    // ╚══════════════════════════════════════════════════════════════════╝
-    //
-    // SEASON CHECKLIST: every new robot must work through the Swerve section of
-    // the "Season Setup Checklist" wiki page. Each item has a matching
-    // TODO(SEASON SWERVE-n) tag in the code (search for "TODO(SEASON").
-    // Pasting from Tuner X replaces the TODO lines inside the paste zone; that
-    // is expected, because the paste is how those items get done.
-    //
-    //   SWERVE-1  Hardware: module type, drive/steer motors, Pro licenses
-    //   SWERVE-2  CAN bus port the drivetrain is wired to    (Constants.CAN_BUS)
-    //   SWERVE-3  Tuner X generator: IDs, offsets, inversions, module positions
-    //   SWERVE-4  Drive gear ratio and coupling ratio
-    //   SWERVE-5  Wheel radius and kSpeedAt12Volts
-    //   SWERVE-6  Verify on blocks: steering, drive direction, gyro, odometry
-    //   SWERVE-7  Tune gains with SysId                      (driveGains, steerGains)
-    //   SWERVE-8  Current limits and slip current            (kSlipCurrent, *_SUPPLY_LIMIT)
-    //   SWERVE-9  Driving/auto tuning knobs                  (Constants.kSwerve.kTuning)
-
-    /** Pasted Tuner X constants. Private fields work because Swerve is the outer class. */
-    @SuppressWarnings("unused") // generator fields we don't read yet (sim inertia, pigeon configs)
-    private static final class TunerConstants {
-
-        // TODO(SEASON SWERVE-1): confirm the hardware. Current values are for the
-        // 2027 robot: SDS MK5n modules, Kraken X60 drive, Kraken X44 steer, Phoenix Pro.
-        //
-        // TODO(SEASON SWERVE-7): starting gains are from Team 340's 2026 robot, which
-        // runs the same MK5n + Kraken X60 (FOC) combination. Tune with SysId.
-
-        // Both sets of gains need to be tuned to your individual robot.
-
-        // The steer motor uses any SwerveModule.SteerRequestType control request with the
-        // output type specified by SwerveModuleConstants.SteerMotorClosedLoopOutput
-        private static final Slot0Configs steerGains = new Slot0Configs()
-            .withKP(100).withKI(0).withKD(0.2)
-            .withKS(0).withKV(0).withKA(0)
-            .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
-        // When using closed-loop control, the drive motor uses the control
-        // output type specified by SwerveModuleConstants.DriveMotorClosedLoopOutput
-        private static final Slot0Configs driveGains = new Slot0Configs()
-            .withKP(0.25).withKI(0).withKD(0)
-            .withKS(0).withKV(0.125);
-
-        // The closed-loop output type to use for the steer motors;
-        // This affects the PID/FF gains for the steer motors
-        private static final ClosedLoopOutputType kSteerClosedLoopOutput = ClosedLoopOutputType.Voltage;
-        // The closed-loop output type to use for the drive motors;
-        // This affects the PID/FF gains for the drive motors
-        private static final ClosedLoopOutputType kDriveClosedLoopOutput = ClosedLoopOutputType.Voltage;
-
-        // The type of motor used for the drive motor
-        private static final DriveMotorArrangement kDriveMotorType = DriveMotorArrangement.TalonFX_Integrated;
-        // The type of motor used for the drive motor
-        private static final SteerMotorArrangement kSteerMotorType = SteerMotorArrangement.TalonFX_Integrated;
-
-        // The remote sensor feedback type to use for the steer motors;
-        // When not Pro-licensed, Fused*/Sync* automatically fall back to Remote*
-        // TODO(SEASON SWERVE-1): FusedCANcoder needs Phoenix Pro on the steer motors.
-        private static final SteerFeedbackType kSteerFeedbackType = SteerFeedbackType.FusedCANcoder;
-
-        // The stator current at which the wheels start to slip;
-        // This needs to be tuned to your individual robot
-        // TODO(SEASON SWERVE-8): 80 A matches 340's MK5n drive stator limit. Measure
-        // our real slip current on carpet.
-        private static final Current kSlipCurrent = Amps.of(80.0);
-
-        // Initial configs for the drive and steer motors and the azimuth encoder; these cannot be null.
-        // Some configs will be overwritten; check the `with*InitialConfigs()` API documentation.
-        private static final TalonFXConfiguration driveInitialConfigs = new TalonFXConfiguration();
-        private static final TalonFXConfiguration steerInitialConfigs = new TalonFXConfiguration()
-            .withCurrentLimits(
-                new CurrentLimitsConfigs()
-                    // Swerve azimuth does not require much torque output, so we can set a relatively low
-                    // stator current limit to help avoid brownouts without impacting performance.
-                    .withStatorCurrentLimit(Amps.of(60))
-                    .withStatorCurrentLimitEnable(true)
-            );
-        private static final CANcoderConfiguration encoderInitialConfigs = new CANcoderConfiguration();
-        // Configs for the Pigeon 2; leave this null to skip applying Pigeon 2 configs
-        private static final Pigeon2Configuration pigeonConfigs = null;
-
-        // Theoretical free speed (m/s) at 12 V applied output;
-        // This needs to be tuned to your individual robot
-        // TODO(SEASON SWERVE-5): Kraken X60 FOC free speed 5800 RPM / 6.12 ratio on a
-        // 4" wheel = 5.04 m/s. SwerveConfigTest fails if this doesn't match the
-        // gear ratio and wheel radius.
-        public static final LinearVelocity kSpeedAt12Volts = MetersPerSecond.of(5.04);
-
-        // Every 1 rotation of the azimuth results in kCoupleRatio drive motor turns;
-        // This may need to be tuned to your individual robot
-        // TODO(SEASON SWERVE-4): 3.57 is the MK4i value. Take the MK5n value from
-        // Tuner X's generator.
-        private static final double kCoupleRatio = 3.5714285714285716;
-
-        // TODO(SEASON SWERVE-4): the MK5n kit includes three drive ratios. 6.12 is our
-        // 2026 ratio. Confirm which one is installed and update this to match.
-        private static final double kDriveGearRatio = 6.122448979591837;
-        // MK5n steering ratio: 287:11 (from SDS).
-        private static final double kSteerGearRatio = 287.0 / 11.0;
-        // TODO(SEASON SWERVE-5): MK5n with 4" x 2.25" molded spike grip wheels. 2.0"
-        // is the NEW radius; tread wears down, so re-measure (or run wheel-radius
-        // calibration) during the season and adjust DRIVE_METERS_SCALE in
-        // Constants.kSwerve.kTuning.
-        private static final Distance kWheelRadius = Inches.of(2.0);
-
-        // TODO(SEASON SWERVE-6): verify drive direction on blocks (all wheels spin so
-        // the robot moves forward when the stick is pushed forward).
-        private static final boolean kInvertLeftSide = false;
-        private static final boolean kInvertRightSide = true;
-
-        private static final int kPigeonId = 30;
-
-        // These are only used for simulation
-        private static final MomentOfInertia kSteerInertia = KilogramSquareMeters.of(0.01);
-        private static final MomentOfInertia kDriveInertia = KilogramSquareMeters.of(0.01);
-        // Simulated voltage necessary to overcome friction
-        private static final Voltage kSteerFrictionVoltage = Volts.of(0.2);
-        private static final Voltage kDriveFrictionVoltage = Volts.of(0.2);
-
-        // TODO(SEASON SWERVE-3): every value from here down (CAN IDs, encoder offsets,
-        // inversions, module positions) is from the 2026 robot. Run Tuner X's swerve
-        // generator on the new robot and paste its values here.
-
-        // Front Left
-        private static final int kFrontLeftDriveMotorId = 7;
-        private static final int kFrontLeftSteerMotorId = 8;
-        private static final int kFrontLeftEncoderId = 9;
-        private static final Angle kFrontLeftEncoderOffset = Rotations.of(0.129150390625);
-        private static final boolean kFrontLeftSteerMotorInverted = false;
-        private static final boolean kFrontLeftEncoderInverted = false;
-
-        private static final Distance kFrontLeftXPos = Inches.of(10.7375);
-        private static final Distance kFrontLeftYPos = Inches.of(10.7375);
-
-        // Front Right
-        private static final int kFrontRightDriveMotorId = 1;
-        private static final int kFrontRightSteerMotorId = 2;
-        private static final int kFrontRightEncoderId = 3;
-        private static final Angle kFrontRightEncoderOffset = Rotations.of(-0.28515625);
-        private static final boolean kFrontRightSteerMotorInverted = false;
-        private static final boolean kFrontRightEncoderInverted = false;
-
-        private static final Distance kFrontRightXPos = Inches.of(10.7375);
-        private static final Distance kFrontRightYPos = Inches.of(-10.7375);
-
-        // Back Left
-        private static final int kBackLeftDriveMotorId = 4;
-        private static final int kBackLeftSteerMotorId = 5;
-        private static final int kBackLeftEncoderId = 6;
-        private static final Angle kBackLeftEncoderOffset = Rotations.of(-0.436767578125);
-        private static final boolean kBackLeftSteerMotorInverted = false;
-        private static final boolean kBackLeftEncoderInverted = false;
-
-        private static final Distance kBackLeftXPos = Inches.of(-10.7375);
-        private static final Distance kBackLeftYPos = Inches.of(10.7375);
-
-        // Back Right
-        private static final int kBackRightDriveMotorId = 10;
-        private static final int kBackRightSteerMotorId = 11;
-        private static final int kBackRightEncoderId = 12;
-        private static final Angle kBackRightEncoderOffset = Rotations.of(0.138671875);
-        private static final boolean kBackRightSteerMotorInverted = false;
-        private static final boolean kBackRightEncoderInverted = false;
-
-        private static final Distance kBackRightXPos = Inches.of(-10.7375);
-        private static final Distance kBackRightYPos = Inches.of(-10.7375);
-    }
-
-    // ╔══════════════════════════════════════════════════════════════════╗
-    // ║                        1507 ADDITIONS                            ║
-    // ║                                                                  ║
-    // ║  Settings Tuner X's generator does not produce. Pasting a new    ║
-    // ║  TunerConstants block never changes these.                       ║
-    // ╚══════════════════════════════════════════════════════════════════╝
-
-    /**
-     * Use FOC commutation on all swerve motors. Requires Phoenix Pro on every
-     * drive and steer motor (we are licensed). FOC gives about 15% more power
-     * and more torque per amp. Tuner X's generated code gets this from CTRE's
-     * swerve requests; our motors get it from here.
-     */
-    // TODO(SEASON SWERVE-1): set false if the swerve motors are not Pro-licensed.
-    private static final boolean USE_FOC = true;
-
-    /**
-     * Supply (battery-side) current limits. These are the main brownout
-     * protection: they cap how hard each motor can pull on the battery.
-     * Starting values match Team 340's MK5n robot (4 drive x 28 A = 112 A
-     * total for driving). Raise them only with match logs showing voltage
-     * stays healthy.
-     */
-    // TODO(SEASON SWERVE-8): review against match logs (battery voltage, brownouts).
-    private static final Current DRIVE_SUPPLY_LIMIT = Amps.of(28.0);
-    private static final Current STEER_SUPPLY_LIMIT = Amps.of(40.0);
-
-    /** Kraken X60 free speed with FOC (rotations/sec): 5800 RPM. Used to sanity-check kSpeedAt12Volts. */
-    // TODO(SEASON SWERVE-1): update if the drive motor changes (non-FOC X60 = 6000 RPM).
-    private static final double KRAKEN_X60_FOC_FREE_RPS = 5800.0 / 60.0;
-
-    // ─────────────────────────────────────────────────────────────────
-    // Values other code reads (computed from the paste zone)
-    // ─────────────────────────────────────────────────────────────────
-
-    /** Maximum translational speed (m/s): Tuner X's kSpeedAt12Volts. */
-    public static final double MAX_SPEED = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
-
-    /** Distance from robot center to a module (m). Used by NodeBoundsTest for robot size. */
-    public static final double DRIVE_BASE_RADIUS = Math.hypot(
-        TunerConstants.kFrontLeftXPos.in(Meters), TunerConstants.kFrontLeftYPos.in(Meters));
-
-    /** Maximum chassis angular rate (rad/s) = v_max / drive-base radius. */
-    public static final double MAX_ANGULAR_RATE = MAX_SPEED / DRIVE_BASE_RADIUS;
 
     // ------------------------------------------------------------
     // Modules
@@ -342,9 +93,6 @@ public final class Swerve extends Subsystem1507 {
     private final SwerveModuleVelocity[] moduleStates = new SwerveModuleVelocity[4];
     private final SwerveModulePosition[] modulePositions = new SwerveModulePosition[4];
 
-    private final double maxSpeedMetersPerSecond;
-    private final double maxAngularMetersPerSecond;
-
 
     // ------------------------------------------------------------
     // Simulated Data
@@ -365,43 +113,18 @@ public final class Swerve extends Subsystem1507 {
 
     public Swerve() {
         super("Swerve");
-        checkPastedSettings();
-        for (String problem : configProblems()) {
+        SwerveConfig.checkPastedSettings();
+        for (String problem : SwerveConfig.configProblems()) {
             DriverStationErrors.reportWarning("[Swerve config] " + problem, false);
         }
 
-        MathConfig math = new MathConfig(
-            TunerConstants.kDriveGearRatio, TunerConstants.kSteerGearRatio,
-            TunerConstants.kCoupleRatio, TunerConstants.kWheelRadius.in(Meters)
-        );
-
-        this.frontLeft = createModule("FrontLeft",
-            TunerConstants.kFrontLeftDriveMotorId, TunerConstants.kFrontLeftSteerMotorId,
-            TunerConstants.kFrontLeftEncoderId, TunerConstants.kFrontLeftEncoderOffset,
-            TunerConstants.kInvertLeftSide, TunerConstants.kFrontLeftSteerMotorInverted,
-            TunerConstants.kFrontLeftEncoderInverted, math);
-
-        this.frontRight = createModule("FrontRight",
-            TunerConstants.kFrontRightDriveMotorId, TunerConstants.kFrontRightSteerMotorId,
-            TunerConstants.kFrontRightEncoderId, TunerConstants.kFrontRightEncoderOffset,
-            TunerConstants.kInvertRightSide, TunerConstants.kFrontRightSteerMotorInverted,
-            TunerConstants.kFrontRightEncoderInverted, math);
-
-        this.backLeft = createModule("BackLeft",
-            TunerConstants.kBackLeftDriveMotorId, TunerConstants.kBackLeftSteerMotorId,
-            TunerConstants.kBackLeftEncoderId, TunerConstants.kBackLeftEncoderOffset,
-            TunerConstants.kInvertLeftSide, TunerConstants.kBackLeftSteerMotorInverted,
-            TunerConstants.kBackLeftEncoderInverted, math);
-
-        this.backRight = createModule("BackRight",
-            TunerConstants.kBackRightDriveMotorId, TunerConstants.kBackRightSteerMotorId,
-            TunerConstants.kBackRightEncoderId, TunerConstants.kBackRightEncoderOffset,
-            TunerConstants.kInvertRightSide, TunerConstants.kBackRightSteerMotorInverted,
-            TunerConstants.kBackRightEncoderInverted, math);
-
-        this.pigeon = new Pigeon2(TunerConstants.kPigeonId, Constants.CAN_BUS);
-        this.maxSpeedMetersPerSecond = MAX_SPEED;
-        this.maxAngularMetersPerSecond = MAX_ANGULAR_RATE;
+        // Modules, gyro and geometry all come from SwerveConfig (the paste zone).
+        this.frontLeft  = SwerveConfig.frontLeft();
+        this.frontRight = SwerveConfig.frontRight();
+        this.backLeft   = SwerveConfig.backLeft();
+        this.backRight  = SwerveConfig.backRight();
+        this.kinematics = SwerveConfig.kinematics();
+        this.pigeon     = new Pigeon2(SwerveConfig.pigeonId(), Constants.CAN_BUS);
 
         this.yaw = pigeon.getYaw();
         this.yawRate = pigeon.getAngularVelocityZWorld();
@@ -410,13 +133,6 @@ public final class Swerve extends Subsystem1507 {
         // every loop. Without this, optimizeBusUtilizationForAll() below would drop
         // yaw to 4 Hz (it slows every signal that has no explicit frequency).
         BaseStatusSignal.setUpdateFrequencyForAll(100.0, yaw, yawRate);
-
-        this.kinematics = new SwerveDriveKinematics(
-            new Translation2d(TunerConstants.kFrontLeftXPos,  TunerConstants.kFrontLeftYPos),
-            new Translation2d(TunerConstants.kFrontRightXPos, TunerConstants.kFrontRightYPos),
-            new Translation2d(TunerConstants.kBackLeftXPos,   TunerConstants.kBackLeftYPos),
-            new Translation2d(TunerConstants.kBackRightXPos,  TunerConstants.kBackRightYPos)
-        );
 
         this.poseEstimator = new SwerveDrivePoseEstimator(
             kinematics,
@@ -438,227 +154,18 @@ public final class Swerve extends Subsystem1507 {
             pigeon
         );
 
-        // Build the master signal array once: every module's signals + Pigeon2 yaw and yaw rate.
-        java.util.List<BaseStatusSignal> signals = new java.util.ArrayList<>();
-        for (SwerveModule1507 m : new SwerveModule1507[] { frontLeft, frontRight, backLeft, backRight }) {
-            signals.addAll(java.util.List.of(m.getAllSignals()));
-        }
+        // Build the signal array once: every module's signals + Pigeon2 yaw and yaw
+        // rate. periodic() refreshes all of them in a single CAN call.
+        List<BaseStatusSignal> signals = new ArrayList<>();
+        signals.addAll(List.of(frontLeft.getAllSignals()));
+        signals.addAll(List.of(frontRight.getAllSignals()));
+        signals.addAll(List.of(backLeft.getAllSignals()));
+        signals.addAll(List.of(backRight.getAllSignals()));
         signals.add(yaw);
         signals.add(yawRate);
         allSignals = signals.toArray(BaseStatusSignal[]::new);
-
-        Telemetry.set("Swerve/Initialized", true);
     }
 
-    // ============================================================
-    // Hardware setup
-    // ============================================================
-
-    /**
-     * Fails fast if the pasted TunerConstants picked a setting our swerve code
-     * does not support, instead of silently driving with the wrong units.
-     */
-    private static void checkPastedSettings() {
-        if (TunerConstants.kDriveClosedLoopOutput != ClosedLoopOutputType.Voltage
-                || TunerConstants.kSteerClosedLoopOutput != ClosedLoopOutputType.Voltage) {
-            throw new IllegalStateException(
-                "Swerve: 1507 swerve supports Voltage closed-loop output only. "
-                + "Regenerate in Tuner X with Voltage, or add TorqueCurrentFOC support "
-                + "(gains would be in amps, not volts).");
-        }
-        if (TunerConstants.kDriveMotorType != DriveMotorArrangement.TalonFX_Integrated
-                || TunerConstants.kSteerMotorType != SteerMotorArrangement.TalonFX_Integrated) {
-            throw new IllegalStateException(
-                "Swerve: 1507 swerve supports TalonFX-integrated motors (Kraken X60/X44) only.");
-        }
-    }
-
-    /**
-     * Sanity-checks the pasted TunerConstants and 1507 additions.
-     *
-     * <p>Returns one plain-English message per problem, or an empty list. The
-     * unit test {@code SwerveConfigTest} fails the build if this is not empty, and
-     * the robot also prints each problem to the Driver Station at startup.
-     *
-     * <p>Each check exists because the mistake is easy to make and the compiler
-     * can't catch it: wrong units, a typo'd CAN ID, a module in the wrong slot.
-     */
-    static java.util.List<String> configProblems() {
-        java.util.List<String> problems = new java.util.ArrayList<>();
-
-        // --- Units: drive kV must be volts per MOTOR rps. ~12 V / free speed = 0.12.
-        // The 2026 code had kV = 2.75 (volts per m/s), which saturated the drive motors.
-        double kV = TunerConstants.driveGains.kV;
-        if (kV < 0.05 || kV > 0.25) {
-            problems.add("driveGains.kV = " + kV + " is outside 0.05-0.25 V per motor rps. "
-                + "Expected about 12 V / motor free speed (~0.12). Is it in m/s units?");
-        }
-        if (TunerConstants.driveGains.kP > 1.0) {
-            problems.add("driveGains.kP = " + TunerConstants.driveGains.kP
-                + " is very high for volts per motor rps of error (340 uses 0.25).");
-        }
-        if (TunerConstants.steerGains.kP <= 0.0) {
-            problems.add("steerGains.kP must be positive or the wheels will not steer.");
-        }
-
-        // --- Mechanics
-        if (TunerConstants.kDriveGearRatio <= 1.0 || TunerConstants.kSteerGearRatio <= 1.0) {
-            problems.add("Gear ratios must be motor rotations per wheel/module rotation (> 1).");
-        }
-        double wheelIn = TunerConstants.kWheelRadius.in(Inches);
-        if (wheelIn < 1.5 || wheelIn > 2.5) {
-            problems.add("kWheelRadius = " + wheelIn + " in. Radius, not diameter? (a 4 in wheel has a 2 in radius)");
-        }
-        double expectedSpeed = KRAKEN_X60_FOC_FREE_RPS / TunerConstants.kDriveGearRatio
-            * 2.0 * Math.PI * TunerConstants.kWheelRadius.in(Meters);
-        if (Math.abs(MAX_SPEED - expectedSpeed) > 0.10 * expectedSpeed) {
-            problems.add(String.format(
-                "kSpeedAt12Volts = %.2f m/s, but gear ratio and wheel size give %.2f m/s. "
-                + "Did the ratio or wheel change without updating it?", MAX_SPEED, expectedSpeed));
-        }
-
-        // --- CAN IDs: no duplicates across the drivetrain (all share one CAN bus).
-        int[] ids = {
-            TunerConstants.kFrontLeftDriveMotorId,  TunerConstants.kFrontLeftSteerMotorId,  TunerConstants.kFrontLeftEncoderId,
-            TunerConstants.kFrontRightDriveMotorId, TunerConstants.kFrontRightSteerMotorId, TunerConstants.kFrontRightEncoderId,
-            TunerConstants.kBackLeftDriveMotorId,   TunerConstants.kBackLeftSteerMotorId,   TunerConstants.kBackLeftEncoderId,
-            TunerConstants.kBackRightDriveMotorId,  TunerConstants.kBackRightSteerMotorId,  TunerConstants.kBackRightEncoderId,
-            TunerConstants.kPigeonId
-        };
-        java.util.Set<Integer> seen = new java.util.HashSet<>();
-        for (int id : ids) {
-            if (!seen.add(id)) {
-                problems.add("CAN ID " + id + " is used by more than one drivetrain device.");
-            }
-        }
-
-        // --- Encoder offsets are CANcoder MagnetOffset values, which must be within one rotation.
-        Angle[] offsets = {
-            TunerConstants.kFrontLeftEncoderOffset, TunerConstants.kFrontRightEncoderOffset,
-            TunerConstants.kBackLeftEncoderOffset,  TunerConstants.kBackRightEncoderOffset
-        };
-        for (Angle offset : offsets) {
-            double rot = offset.in(Rotations);
-            if (rot < -1.0 || rot > 1.0) {
-                problems.add("Encoder offset " + rot + " rotations is outside -1..1. Degrees instead of rotations?");
-            }
-        }
-
-        // --- Module positions: kinematics assumes FL, FR, BL, BR order (+X forward, +Y left).
-        checkQuadrant(problems, "FrontLeft",  TunerConstants.kFrontLeftXPos,  TunerConstants.kFrontLeftYPos,   1,  1);
-        checkQuadrant(problems, "FrontRight", TunerConstants.kFrontRightXPos, TunerConstants.kFrontRightYPos,  1, -1);
-        checkQuadrant(problems, "BackLeft",   TunerConstants.kBackLeftXPos,   TunerConstants.kBackLeftYPos,   -1,  1);
-        checkQuadrant(problems, "BackRight",  TunerConstants.kBackRightXPos,  TunerConstants.kBackRightYPos,  -1, -1);
-
-        // --- The MotorConfigs built from the paste zone pass the general motor checks.
-        for (String problem : driveConfig(false).problems()) {
-            problems.add("drive motor config: " + problem);
-        }
-        for (String problem : steerConfig(TunerConstants.kFrontLeftEncoderId, false).problems()) {
-            problems.add("steer motor config: " + problem);
-        }
-
-        // --- Current limits: supply limits are our brownout protection.
-        if (DRIVE_SUPPLY_LIMIT.in(Amps) <= 0.0 || STEER_SUPPLY_LIMIT.in(Amps) <= 0.0) {
-            problems.add("Supply current limits must be positive.");
-        }
-        if (DRIVE_SUPPLY_LIMIT.in(Amps) > TunerConstants.kSlipCurrent.in(Amps)) {
-            problems.add("DRIVE_SUPPLY_LIMIT is above kSlipCurrent (the drive stator limit).");
-        }
-
-        return problems;
-    }
-
-    private static void checkQuadrant(
-        java.util.List<String> problems, String name, Distance x, Distance y, int xSign, int ySign
-    ) {
-        if (Math.signum(x.in(Meters)) != xSign || Math.signum(y.in(Meters)) != ySign) {
-            problems.add(name + " position (" + x.in(Inches) + " in, " + y.in(Inches)
-                + " in) is in the wrong corner. +X is forward, +Y is left.");
-        }
-    }
-
-    /**
-     * Builds one swerve module from pasted TunerConstants values, the same way
-     * CTRE's generated drivetrain would: the encoder offset is written to the
-     * CANcoder itself, and the steer motor closes its loop on that CANcoder.
-     */
-    private static SwerveModule1507 createModule(
-        String name,
-        int driveId, int steerId, int encoderId,
-        Angle encoderOffset,
-        boolean driveInverted, boolean steerInverted, boolean encoderInverted,
-        MathConfig math
-    ) {
-        // CANcoder: store the offset ON the device, so its absolute position
-        // already reads 0 when the wheel points forward. The steer motor's
-        // closed loop and our odometry both read this one corrected value.
-        CANcoder encoder = new CANcoder(encoderId, Constants.CAN_BUS);
-        CANcoderConfiguration encoderConfig = TunerConstants.encoderInitialConfigs;
-        encoderConfig.MagnetSensor.MagnetOffset = encoderOffset.in(Rotations);
-        encoderConfig.MagnetSensor.SensorDirection = encoderInverted
-            ? SensorDirectionValue.Clockwise_Positive
-            : SensorDirectionValue.CounterClockwise_Positive;
-        CtreMotorConfigurator.applyWithRetry("CANcoder " + encoderId,
-            () -> encoder.getConfigurator().apply(encoderConfig));
-
-        Motor1507 drive = new Motor1507("Swerve/" + name + "/Drive", Motor1507.Type.FX,
-            driveId, Constants.CAN_BUS, driveConfig(driveInverted));
-        Motor1507 steer = new Motor1507("Swerve/" + name + "/Steer", Motor1507.Type.FX,
-            steerId, Constants.CAN_BUS, steerConfig(encoderId, steerInverted));
-
-        return new SwerveModule1507(name, drive, steer, encoder, math, kSwerve.kTuning.DRIVE_METERS_SCALE);
-    }
-
-    /** Drive motor: velocity control in motor rps, gains straight from driveGains. */
-    private static MotorConfig driveConfig(boolean inverted) {
-        Slot0Configs g = TunerConstants.driveGains;
-        MotorConfig.Builder b = MotorConfig.builder(ControlMode.VELOCITY)
-            .inverted(inverted)
-            .withPID(g.kP, g.kI, g.kD)
-            .withFeedforward(g.kS, g.kV, g.kA)
-            .withStatorCurrentLimit(TunerConstants.kSlipCurrent)
-            .withSupplyCurrentLimit(DRIVE_SUPPLY_LIMIT)
-            .withBrake();
-        if (USE_FOC) b.withFOC();
-        return b.build();
-    }
-
-    /**
-     * Steer motor: position control on the CANcoder in module rotations.
-     * RotorToSensorRatio = steer ratio, so FusedCANcoder can blend the CANcoder
-     * with the motor's own fast encoder (Pro).
-     */
-    private static MotorConfig steerConfig(int encoderId, boolean inverted) {
-        Slot0Configs g = TunerConstants.steerGains;
-        FeedbackSensorSourceValue source = switch (TunerConstants.kSteerFeedbackType) {
-            case FusedCANcoder -> FeedbackSensorSourceValue.FusedCANcoder;
-            case SyncCANcoder  -> FeedbackSensorSourceValue.SyncCANcoder;
-            case RemoteCANcoder -> FeedbackSensorSourceValue.RemoteCANcoder;
-            default -> throw new IllegalStateException(
-                "Swerve: unsupported kSteerFeedbackType " + TunerConstants.kSteerFeedbackType);
-        };
-        MotorConfig.Builder b = MotorConfig.builder(ControlMode.POSITION)
-            .inverted(inverted)
-            .withPID(g.kP, g.kI, g.kD)
-            .withFeedforward(g.kS, g.kV, g.kA)
-            .withStaticFeedforwardSign(g.StaticFeedforwardSign)
-            .withStatorCurrentLimit(
-                Amps.of(TunerConstants.steerInitialConfigs.CurrentLimits.StatorCurrentLimit))
-            .withSupplyCurrentLimit(STEER_SUPPLY_LIMIT)
-            .withFeedbackSensor(source)
-            .withRemoteSensorId(encoderId)
-            .withRotorToSensorRatio(TunerConstants.kSteerGearRatio)
-            .withSensorToMechanismRatio(1.0)
-            .withContinuousWrap()
-            // Stall = high current while not moving. The default 60 A threshold
-            // equals the steer stator limit, so current could never exceed it.
-            .withStallCurrentThreshold(
-                0.75 * TunerConstants.steerInitialConfigs.CurrentLimits.StatorCurrentLimit)
-            .withBrake();
-        if (USE_FOC) b.withFOC();
-        return b.build();
-    }
 
     // ============================================================
     // Periodic
@@ -721,7 +228,7 @@ public final class Swerve extends Subsystem1507 {
         );
         // 2027: desaturateWheelVelocities returns a NEW array (it no longer edits
         // the one passed in), so the result must be assigned back.
-        states = SwerveDriveKinematics.desaturateWheelVelocities(states, maxSpeedMetersPerSecond);
+        states = SwerveDriveKinematics.desaturateWheelVelocities(states, SwerveConfig.MAX_SPEED);
 
         frontLeft.setDesiredState(states[0]);
         frontRight.setDesiredState(states[1]);
@@ -818,12 +325,12 @@ public final class Swerve extends Subsystem1507 {
 
     /** Returns the configured maximum translational speed in m/s. */
     public double getMaxSpeed() {
-        return maxSpeedMetersPerSecond;
+        return SwerveConfig.MAX_SPEED;
     }
 
     /** Returns the configured maximum angular rate in rad/s. */
     public double getMaxAngular() {
-        return maxAngularMetersPerSecond;
+        return SwerveConfig.MAX_ANGULAR_RATE;
     }
 
     // ============================================================
@@ -887,8 +394,6 @@ public final class Swerve extends Subsystem1507 {
 
     /** Returns true if any drive motor is currently reporting a stall condition. */
     public boolean isAnyDriveStalled() {
-        if (org.wpilib.framework.RobotBase.isSimulation()) return false;
-
         return frontLeft.isDriveStalled()
             || frontRight.isDriveStalled()
             || backLeft.isDriveStalled()
@@ -897,8 +402,6 @@ public final class Swerve extends Subsystem1507 {
 
     /** Returns true if any steer motor is currently reporting a stall condition. */
     public boolean isAnySteerStalled() {
-        if (org.wpilib.framework.RobotBase.isSimulation()) return false;
-
         return frontLeft.isSteerStalled()
             || frontRight.isSteerStalled()
             || backLeft.isSteerStalled()
@@ -925,7 +428,7 @@ public final class Swerve extends Subsystem1507 {
      */
     private double computeOmega(Rotation2d current, Rotation2d desired) {
         double error = MathUtil.angleModulus(desired.minus(current).getRadians());
-        return Math.clamp(error * HEADING_KP, -maxAngularMetersPerSecond, maxAngularMetersPerSecond);
+        return Math.clamp(error * HEADING_KP, -SwerveConfig.MAX_ANGULAR_RATE, SwerveConfig.MAX_ANGULAR_RATE);
     }
 
     /**
@@ -1105,17 +608,7 @@ public final class Swerve extends Subsystem1507 {
     }
 
     private Command pointToTarget(Supplier<Pose2d> targetPoseSupplier, String name) {
-        return run(coroutine -> {
-            while (!isFacing(computeHeadingToTarget(getPose(), targetPoseSupplier.get()))) {
-                Pose2d current = getPose();
-                Rotation2d desired = computeHeadingToTarget(current, targetPoseSupplier.get());
-                drive(new ChassisVelocities(0.0, 0.0, computeOmega(current.getRotation(), desired)));
-                coroutine.yield();
-            }
-            stop();
-        })
-        .whenCanceled(this::stop)
-        .named(name);
+        return turnToFace(() -> computeHeadingToTarget(getPose(), targetPoseSupplier.get()), name);
     }
 
     /**
@@ -1141,16 +634,7 @@ public final class Swerve extends Subsystem1507 {
      * @param targetHeading  the desired heading
      */
     public Command changeHeading(Rotation2d targetHeading) {
-        return run(coroutine -> {
-            while (!isFacing(targetHeading)) {
-                double omega = computeOmega(getPose().getRotation(), targetHeading);
-                drive(new ChassisVelocities(0.0, 0.0, omega));
-                coroutine.yield();
-            }
-            stop();
-        })
-        .whenCanceled(this::stop)
-        .named("Swerve.changeHeading");
+        return turnToFace(() -> targetHeading, "Swerve.changeHeading");
     }
 
     /**
@@ -1239,44 +723,7 @@ public final class Swerve extends Subsystem1507 {
      * @param stopAtEnd   true = stop when done; false = leave velocity applied (for chaining)
      */
     public Command driveToPoint(Pose2d targetPose, double velocity, boolean stopAtEnd) {
-        return run(coroutine -> {
-            // Stall detection: where the robot last made progress, and when.
-            Translation2d lastProgressPoint = getPose().getTranslation();
-            double lastProgressTime = Timer.getTimestamp();
-
-            while (true) {
-                Pose2d current = getPose();
-                Translation2d toTarget = targetPose.getTranslation().minus(current.getTranslation());
-                double distance = toTarget.getNorm();
-
-                // Done: arrived
-                if (distance < ARRIVE_THRESHOLD) {
-                    break;
-                }
-
-                // Done: stalled (not moving for STALL_TIMEOUT seconds)
-                if (current.getTranslation().getDistance(lastProgressPoint) > STALL_THRESHOLD) {
-                    lastProgressPoint = current.getTranslation();
-                    lastProgressTime = Timer.getTimestamp();
-                } else if (Timer.getTimestamp() - lastProgressTime > STALL_TIMEOUT) {
-                    break;
-                }
-
-                // Drive toward the target, slowing down as it gets close
-                double speed = Math.min(ARRIVE_KP * distance, velocity);
-                drive(new ChassisVelocities(
-                    toTarget.getX() / distance * speed,
-                    toTarget.getY() / distance * speed,
-                    computeOmega(current.getRotation(), targetPose.getRotation())
-                ).toRobotRelative(current.getRotation()));
-
-                coroutine.yield();
-            }
-
-            if (stopAtEnd) stop();
-        })
-        .whenCanceled(() -> { if (stopAtEnd) stop(); })
-        .named("Swerve.driveToPoint");
+        return driveToTarget(start -> targetPose, velocity, stopAtEnd, "Swerve.driveToPoint");
     }
 
     /**
@@ -1308,28 +755,16 @@ public final class Swerve extends Subsystem1507 {
             thetaPID.enableContinuousInput(-Math.PI, Math.PI);
 
             double startTime = Timer.getTimestamp();
-            Translation2d lastProgressPoint = getPose().getTranslation();
-            double lastProgressTime = startTime;
+            ProgressWatchdog watchdog = new ProgressWatchdog(getPose().getTranslation());
 
             while (true) {
                 Pose2d current = getPose();
-                double now = Timer.getTimestamp();
 
-                // Done: robot entered the pass radius
-                if (current.getTranslation().getDistance(targetPose.getTranslation()) < passRadius) {
-                    break;
-                }
-
-                // Done: stalled (not moving for STALL_TIMEOUT seconds)
-                if (current.getTranslation().getDistance(lastProgressPoint) > STALL_THRESHOLD) {
-                    lastProgressPoint = current.getTranslation();
-                    lastProgressTime = now;
-                } else if (now - lastProgressTime > STALL_TIMEOUT) {
-                    break;
-                }
-
-                // Done: hard time limit — catches oscillation that keeps resetting the stall timer
-                if (now - startTime > MAX_MOVETHROUGH_SECONDS) {
+                // Done: entered the pass radius, stalled, or hit the hard time limit
+                // (the time limit catches oscillation that keeps resetting the watchdog)
+                if (current.getTranslation().getDistance(targetPose.getTranslation()) < passRadius
+                        || watchdog.isStalled(current.getTranslation())
+                        || Timer.getTimestamp() - startTime > MAX_MOVETHROUGH_SECONDS) {
                     break;
                 }
 
@@ -1381,26 +816,74 @@ public final class Swerve extends Subsystem1507 {
      * @param stopAtEnd       true = stop when done
      */
     public Command driveForwardMeters(double distanceMeters, double velocity, boolean stopAtEnd) {
-        return run(coroutine -> {
-            Pose2d start = getPose();
+        return driveToTarget(start -> {
             Rotation2d heading = start.getRotation();
-            Translation2d target = start.getTranslation().plus(
-                new Translation2d(distanceMeters * heading.getCos(), distanceMeters * heading.getSin()));
+            Translation2d offset = new Translation2d(
+                distanceMeters * heading.getCos(), distanceMeters * heading.getSin());
+            return new Pose2d(start.getTranslation().plus(offset), heading);
+        }, velocity, stopAtEnd, "Swerve.driveForwardMeters");
+    }
+
+
+    // ─────────────────────────────────────────────────────────────────
+    // SHARED COMMAND BUILDING BLOCKS
+    //
+    // Private helpers used by the commands above, so each piece of logic
+    // exists in exactly one place.
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Turns in place until the robot faces {@code desiredHeading} (re-read
+     * every loop), within HEADING_TOLERANCE_DEG, then stops.
+     * Used by pointToTarget and changeHeading.
+     */
+    private Command turnToFace(Supplier<Rotation2d> desiredHeading, String name) {
+        return run(coroutine -> {
+            Rotation2d desired = desiredHeading.get();
+            while (!isFacing(desired)) {
+                drive(new ChassisVelocities(0.0, 0.0, computeOmega(getPose().getRotation(), desired)));
+                coroutine.yield();
+                desired = desiredHeading.get();
+            }
+            stop();
+        })
+        .whenCanceled(this::stop)
+        .named(name);
+    }
+
+    /**
+     * Drives to a target pose, slowing down as it gets close (APF deceleration
+     * ramp) while turning toward the target's heading. Finishes within
+     * ARRIVE_THRESHOLD, or gives up if the robot stops making progress (see
+     * {@link ProgressWatchdog}) so an auto can continue.
+     * Used by driveToPoint and driveForwardMeters.
+     *
+     * @param targetFromStart works out the target from the robot's pose when the
+     *                        command STARTS (driveForwardMeters needs this)
+     */
+    private Command driveToTarget(
+        Function<Pose2d, Pose2d> targetFromStart, double velocity, boolean stopAtEnd, String name
+    ) {
+        return run(coroutine -> {
+            Pose2d target = targetFromStart.apply(getPose());
+            ProgressWatchdog watchdog = new ProgressWatchdog(getPose().getTranslation());
 
             while (true) {
                 Pose2d current = getPose();
-                Translation2d toTarget = target.minus(current.getTranslation());
+                Translation2d toTarget = target.getTranslation().minus(current.getTranslation());
                 double distance = toTarget.getNorm();
 
-                if (distance < ARRIVE_THRESHOLD) {
+                // Done: arrived, or stalled (pushed against a wall, stuck on something)
+                if (distance < ARRIVE_THRESHOLD || watchdog.isStalled(current.getTranslation())) {
                     break;
                 }
 
+                // Drive toward the target, slowing down as it gets close
                 double speed = Math.min(ARRIVE_KP * distance, velocity);
                 drive(new ChassisVelocities(
                     toTarget.getX() / distance * speed,
                     toTarget.getY() / distance * speed,
-                    computeOmega(current.getRotation(), heading)
+                    computeOmega(current.getRotation(), target.getRotation())
                 ).toRobotRelative(current.getRotation()));
 
                 coroutine.yield();
@@ -1409,7 +892,34 @@ public final class Swerve extends Subsystem1507 {
             if (stopAtEnd) stop();
         })
         .whenCanceled(() -> { if (stopAtEnd) stop(); })
-        .named("Swerve.driveForwardMeters");
+        .named(name);
+    }
+
+    /**
+     * Tells a driving command when the robot has stopped making progress:
+     * it moved less than STALL_THRESHOLD meters in the last STALL_TIMEOUT
+     * seconds (pushed against a wall, stuck on a game piece). Each command
+     * run creates its own watchdog when it starts.
+     */
+    private static final class ProgressWatchdog {
+        private Translation2d lastProgressPoint;
+        private double lastProgressTime;
+
+        ProgressWatchdog(Translation2d start) {
+            lastProgressPoint = start;
+            lastProgressTime = Timer.getTimestamp();
+        }
+
+        /** Call once per loop with the robot's position; true once it has stalled. */
+        boolean isStalled(Translation2d position) {
+            double now = Timer.getTimestamp();
+            if (position.getDistance(lastProgressPoint) > STALL_THRESHOLD) {
+                lastProgressPoint = position;
+                lastProgressTime = now;
+                return false;
+            }
+            return now - lastProgressTime > STALL_TIMEOUT;
+        }
     }
 
 

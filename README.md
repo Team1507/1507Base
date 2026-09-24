@@ -15,7 +15,8 @@ src/main/java/org/team1507/
     auto/routines/        Autonomous OpModes (@Autonomous, one class per routine)
     teleop/               Teleop OpModes (@Teleop) and their button bindings
     subsystems/
-      Swerve.java         Swerve drivetrain + Tuner X paste zone
+      Swerve.java         Swerve drivetrain: odometry, driving, commands
+      SwerveConfig.java   Drivetrain hardware: Tuner X paste zone, motor configs, checks
   lib/core/
     framework/            Base classes: LoggedRobot, Subsystem1507, AutoOpMode
     impl/ctre/            Motor1507 and CTRE configuration

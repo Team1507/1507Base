@@ -15,7 +15,7 @@ import org.wpilib.opmode.Teleop;
 
 import org.team1507.robot.Robot;
 import org.team1507.robot.RobotBehaviors;
-import org.team1507.robot.subsystems.Swerve;
+import org.team1507.robot.subsystems.SwerveConfig;
 
 import static org.team1507.robot.Constants.kSwerve.kTuning.DRIVER_DEADBAND;
 import static org.team1507.robot.Constants.kSwerve.kTuning.DRIVER_MAX_ROTATION;
@@ -51,8 +51,8 @@ public final class DriverTeleop implements OpMode {
                 // away from the driver, on either alliance. Convert to robot-relative
                 // for the kinematics.
                 return new ChassisVelocities(
-                    x   * Swerve.MAX_SPEED,
-                    y   * Swerve.MAX_SPEED,
+                    x   * SwerveConfig.MAX_SPEED,
+                    y   * SwerveConfig.MAX_SPEED,
                     rot * DRIVER_MAX_ROTATION
                 ).toRobotRelative(robot.swerve.getDriverRelativeHeading());
             })

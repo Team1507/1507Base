@@ -39,7 +39,7 @@ public class Constants {
     public static final class RobotMap {
 
         // Drivetrain CAN IDs, CANcoder offsets, and the Pigeon2 ID live in the
-        // Tuner X paste zone at the top of subsystems/Swerve.java, so they can be
+        // Tuner X paste zone at the top of subsystems/SwerveConfig.java, so they can be
         // pasted straight from Tuner X's generated TunerConstants.java.
         // Keep every OTHER device's CAN ID here, and check for collisions with
         // the drivetrain IDs (1-12, Pigeon2 = 30) when adding one.
@@ -53,7 +53,7 @@ public class Constants {
     // Swerve Drive tuning: knobs adjusted while tuning or at events.
     //
     // Swerve HARDWARE facts (gear ratios, wheel size, motor gains, current
-    // limits) live in subsystems/Swerve.java. They only change when the
+    // limits) live in subsystems/SwerveConfig.java. They only change when the
     // hardware changes, and they are pasted from Tuner X.
     // ============================================================
 

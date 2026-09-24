@@ -10,9 +10,13 @@ package org.team1507.lib.core.swerve;
 
 import static org.wpilib.units.Units.*;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.hardware.CANcoder;
+import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.sim.CANcoderSimState;
 
 import org.wpilib.math.geometry.Rotation2d;
@@ -25,11 +29,24 @@ import org.wpilib.framework.RobotBase;
 import org.team1507.lib.core.impl.ctre.Motor1507;
 import org.team1507.lib.core.logging.Telemetry;
 
+/**
+ * One swerve module: a drive motor, a steer motor, and the CANcoder that
+ * knows which way the wheel points. Converts between wheel meters/angles and
+ * motor rotations, including the drive/steer coupling correction.
+ *
+ * <p>Built by SwerveConfig from the Tuner X paste zone; used by Swerve.
+ */
 public final class SwerveModule1507 {
 
+    /**
+     * Wheel and gearing numbers shared by all four modules.
+     *
+     * @param driveGearRatio    drive motor turns per wheel turn
+     * @param couplingRatio     drive motor turns per module (steer) turn
+     * @param wheelRadiusMeters wheel radius in meters
+     */
     public record MathConfig(
         double driveGearRatio,
-        double steerGearRatio,
         double couplingRatio,
         double wheelRadiusMeters
     ) {
@@ -56,7 +73,7 @@ public final class SwerveModule1507 {
 
     /**
      * CANcoder position in module rotations. The magnet offset is stored on the
-     * CANcoder (see Swerve.createModule), so 0 = wheel pointing forward.
+     * CANcoder (see SwerveConfig.createModule), so 0 = wheel pointing forward.
      *
      * <p>This is the CONTINUOUS position (it counts past 1.0 rotation), not
      * getAbsolutePosition(), which wraps from +0.5 to -0.5. The coupling
@@ -94,15 +111,12 @@ public final class SwerveModule1507 {
 
         // Every drive, steer and CANcoder signal, refreshed together by Swerve.
         // Built from the motors' own lists, so adding a motor signal can't break it.
-        java.util.List<BaseStatusSignal> signals = new java.util.ArrayList<>();
-        signals.addAll(java.util.List.of(drive.getSignals()));
-        signals.addAll(java.util.List.of(steer.getSignals()));
+        List<BaseStatusSignal> signals = new ArrayList<>();
+        signals.addAll(List.of(drive.getSignals()));
+        signals.addAll(List.of(steer.getSignals()));
         signals.add(azimuthPosition);
         signals.add(azimuthVelocity);
         this.allSignals = signals.toArray(BaseStatusSignal[]::new);
-
-        Telemetry.set(key("Drive/MetersScale"), driveMetersScale);
-        Telemetry.set(key("Initialized"), true);
     }
 
     // ============================================================
@@ -188,7 +202,7 @@ public final class SwerveModule1507 {
     // ============================================================
 
     /**
-     * Called every loop from Swerve.simulationPeriodic().
+     * Called every loop in simulation from Swerve.simulationPeriodic().
      * Updates the CANcoder sim state so getAngle() returns real values,
      * and integrates drive position.
      */
@@ -208,7 +222,7 @@ public final class SwerveModule1507 {
     // Observation
     // ============================================================
 
-    /** Returns the current steer angle (0 = wheel forward; offset is applied on the CANcoder). */
+    /** Returns the current steer angle (0 = wheel forward; the offset is stored on the CANcoder). */
     public Rotation2d getAngle() {
         return Rotation2d.fromRotations(azimuthRotations());
     }
@@ -249,24 +263,18 @@ public final class SwerveModule1507 {
         return allSignals;
     }
 
-    /** @deprecated Replaced by {@link #getAllSignals()} — Swerve now batches all signals in one call. */
-    @Deprecated
-    public void refreshSignals() {
-        // no-op — Swerve.periodic() calls BaseStatusSignal.refreshAll(allSignals) for all modules
-    }
-
     // ============================================================
     // CAN Bus Access (for bus optimization only)
     // ============================================================
 
     /** Returns the drive motor's Phoenix 6 device handle. Used to optimize CAN bus utilization. */
-    public com.ctre.phoenix6.hardware.ParentDevice getDriveDevice() { return drive.getDevice(); }
+    public ParentDevice getDriveDevice() { return drive.getDevice(); }
 
     /** Returns the steer motor's Phoenix 6 device handle. Used to optimize CAN bus utilization. */
-    public com.ctre.phoenix6.hardware.ParentDevice getSteerDevice() { return steer.getDevice(); }
+    public ParentDevice getSteerDevice() { return steer.getDevice(); }
 
     /** Returns the CANcoder's Phoenix 6 device handle. Used to optimize CAN bus utilization. */
-    public com.ctre.phoenix6.hardware.ParentDevice getEncoderDevice() { return encoder; }
+    public ParentDevice getEncoderDevice() { return encoder; }
 
     // ============================================================
     // Faults

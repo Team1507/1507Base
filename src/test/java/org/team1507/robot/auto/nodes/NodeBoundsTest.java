@@ -15,7 +15,7 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Translation2d;
 
 import org.junit.jupiter.api.Test;
-import org.team1507.robot.subsystems.Swerve;
+import org.team1507.robot.subsystems.SwerveConfig;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NodeBoundsTest
@@ -84,7 +84,7 @@ class NodeBoundsTest {
      * This matches the radius used for MAX_ANGULAR_RATE in Constants.
      */
     private static final double ROBOT_CLEARANCE_RADIUS =
-        Swerve.DRIVE_BASE_RADIUS + BUMPER_BUFFER_METERS;
+        SwerveConfig.DRIVE_BASE_RADIUS + BUMPER_BUFFER_METERS;
 
 
     // =========================================================================
