@@ -8,8 +8,6 @@
 
 package org.team1507.robot.subsystems;
 
-import static org.wpilib.units.Units.*;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
