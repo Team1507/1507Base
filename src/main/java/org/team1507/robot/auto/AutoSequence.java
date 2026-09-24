@@ -81,7 +81,8 @@ import org.team1507.robot.auto.nodes.FieldFlip;
 //     )
 //
 // HOW TO ADD NEW AUTO STEPS (each year):
-//   1. Add your command to AutoBuilder.java (or RobotBehaviors.java if multi-subsystem).
+//   1. Write the command on your subsystem (or in RobotBehaviors.java if it uses
+//      several subsystems), and register the subsystem in AutoBuilder.java.
 //   2. Add a one-line wrapper method here following the pattern of existing methods.
 //   3. Use it in your routine file.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,7 +136,7 @@ public final class AutoSequence {
      * Without this call, build() produces no NetworkTables output (zero overhead).
      *
      * Place anywhere in the chain — it takes effect when build() is called:
-     *   new AutoSequence().withDebug().startTimer().resetPose(start)...build();
+     *   new AutoSequence().withDebug().resetPose(start)...build();
      */
     public AutoSequence withDebug() {
         this.debugEnabled = true;
@@ -143,8 +144,9 @@ public final class AutoSequence {
     }
 
     /**
-     * Renames the most recently added step. The name shows up in command logs
-     * and in .withDebug() telemetry. Chain immediately after any step method:
+     * Renames the most recently added step. The name shows up in .withDebug()
+     * telemetry (and in command logs once the logging work lands). Chain
+     * immediately after any step method:
      *
      *   .moveThroughBy(bump, 0.2, 2.0).withName("Cross bump")
      */
@@ -193,7 +195,7 @@ public final class AutoSequence {
     }
 
     /**
-     * Moderately slow movement — 50% speed, 75% angular rate.
+     * Moderately slow movement — 50% speed, turning at 0.75 rotations/second.
      * Good for approach paths where precision matters.
      */
     public AutoSequence slow() {
@@ -203,7 +205,7 @@ public final class AutoSequence {
     }
 
     /**
-     * Very slow, precise movement — 30% speed, 50% angular rate.
+     * Very slow, precise movement — 30% speed, turning at 0.5 rotations/second.
      * Good for final alignment steps or tight corridor navigation.
      */
     public AutoSequence creep() {

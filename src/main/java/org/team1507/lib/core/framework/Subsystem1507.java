@@ -65,7 +65,7 @@ public abstract class Subsystem1507 implements Mechanism {
     /**
      * @param name subsystem name — used as the NT root for all telemetry
      *             produced by this subsystem and its motors, and as the
-     *             mechanism name shown in command logs.
+     *             mechanism name Commands v3 reports for its commands.
      */
     protected Subsystem1507(String name) {
         this.name = name;
@@ -108,7 +108,7 @@ public abstract class Subsystem1507 implements Mechanism {
      * this subsystem in AdvantageScope:
      * <pre>
      *   new Motor1507(key("MotorA"), Motor1507.Type.FX, id, Constants.CAN_BUS, config)
-     *   // → Motor1507 publishes at Arm/MotorA/Input/Position, etc.
+     *   // → Motor1507 publishes at Arm/MotorA/PositionDeg, Arm/MotorA/RPM, etc.
      * </pre>
      *
      * @param child the field or component name to append

@@ -339,7 +339,7 @@ public final class Swerve extends Subsystem1507 {
      * Feeds a vision-estimated pose into the pose estimator.
      *
      * @param visionPose        estimated robot pose from vision
-     * @param timestampSeconds  FPGA timestamp of the measurement
+     * @param timestampSeconds  robot timestamp (Timer.getTimestamp()) when the measurement was captured
      * @param stdDevs           measurement confidence [x (m), y (m), heading (rad)]
      */
     public void addVisionMeasurement(

@@ -13,18 +13,20 @@ import org.team1507.robot.subsystems.Swerve;
 // ─────────────────────────────────────────────────────────────────────────────
 // AutoBuilder
 //
-// Static registry that holds all subsystem references and exposes them as
-// zero-argument command factories. Initialized ONCE from Robot.java after
-// all subsystems are created.
+// Static registry of subsystem references, so AutoSequence steps can reach the
+// subsystems without every auto routine passing them around. Initialized ONCE
+// from Robot.java after all subsystems are created.
 //
-// HOW TO ADD A NEW SUBSYSTEM EACH YEAR:
+// It holds references only. The commands themselves live on the subsystems
+// (e.g. AutoBuilder.swerve.driveToPoint(...)).
+//
+// HOW TO ADD A NEW SUBSYSTEM EACH YEAR (only if auto routines use it):
 //   1. Import your subsystem at the top of this file.
 //   2. Add a public static field for it below the existing fields.
 //   3. Add it as a parameter to init() and assign it.
-//   4. Add your command factory methods in the appropriate section below.
-//   5. Call AutoBuilder.init(...) in Robot.java with the new subsystem.
+//   4. Pass it in the AutoBuilder.init(...) call in Robot.java.
 //
-// Students should NEVER instantiate this class. Always call AutoBuilder.method().
+// Students should NEVER instantiate this class; use the static fields.
 // ─────────────────────────────────────────────────────────────────────────────
 public final class AutoBuilder {
 

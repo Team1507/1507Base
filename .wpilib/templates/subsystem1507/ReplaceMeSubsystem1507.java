@@ -63,7 +63,18 @@ public class ReplaceMeSubsystem1507 extends Subsystem1507 {
   @Override
   public void periodic() {
     // Runs every loop, before commands.
+
+    // TODO: Read each motor's latest values from CAN FIRST. Without this, every
+    // motor getter (position, RPM, current) returns the same old value forever.
+    // motor.refresh();
+
     // TODO: Log telemetry
     // log("someField", someValue);
+  }
+
+  @Override
+  public void simulationPeriodic() {
+    // Runs every loop in simulation only. Without this, motors don't move in sim.
+    // motor.simulationPeriodic(0.02);
   }
 }

@@ -461,7 +461,7 @@ public final class CtreMotorConfigurator {
      * motor that silently keeps factory defaults has no current limits and may
      * have the wrong inversion or feedback sensor, so this must be visible.
      *
-     * <p>Also used for CANcoder configuration in {@code SwerveModule1507}.
+     * <p>Also used for CANcoder configuration in {@code SwerveConfig}.
      *
      * @param device  human-readable device name for the error message
      * @param apply   the config call to run

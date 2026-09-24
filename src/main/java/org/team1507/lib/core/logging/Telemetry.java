@@ -25,16 +25,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Centralized telemetry publisher.
+ * Centralized telemetry publisher (to NetworkTables; DataLogManager records
+ * NetworkTables into the match log).
  *
  * <p>{@code Telemetry} manages two forms of logging:
  *
  * <ul>
  *   <li><b>Periodic field logging</b> via {@link InputField}, published at
  *       configurable {@link TelemetryRate}s.</li>
- *   <li><b>Immediate event logging</b> for command lifecycle, stall events,
- *       timestamps, and other one‑shot values.</li>
+ *   <li><b>Immediate event logging</b> for stall events, timestamps, and
+ *       other one-shot values.</li>
  * </ul>
+ *
+ * <p>2027 note: the planned logging work replaces this class with WPILib 2027's
+ * built-in Telemetry. Until then, prefer {@code Subsystem1507.log(...)}.
  *
  * <p>Periodic logging is rate‑limited and intended for sensor and mechanism
  * state. Event logging writes directly to NetworkTables and is intended for
@@ -194,7 +198,7 @@ public final class Telemetry {
     /**
      * Logs a timestamped event.
      *
-     * <p>This convenience method records the current FPGA timestamp under the
+     * <p>This convenience method records the current robot timestamp under the
      * given key. It is useful for marking command start/end events, stall
      * transitions, and other discrete occurrences.
      *

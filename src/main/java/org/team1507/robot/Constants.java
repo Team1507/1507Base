@@ -32,8 +32,9 @@ public class Constants {
     public static final CANBus CAN_BUS = new CANBus(CANPort.CAN_S0);
 
     // ============================================================
-    // Hardware Map — all CAN IDs and sensor offsets in one place.
-    // Update whenever a motor or encoder is replaced or renumbered.
+    // Hardware Map — CAN IDs and ports for everything EXCEPT the
+    // drivetrain (see below). Update whenever a device is replaced
+    // or renumbered.
     // ============================================================
 
     public static final class RobotMap {
@@ -97,9 +98,10 @@ public class Constants {
             public static final double MOVE_THROUGH_DEFAULT_RADIUS = 0.3;
 
             /**
-             * Stall detection for moveThroughPose.
-             * If the robot moves less than STALL_THRESHOLD meters over STALL_TIMEOUT seconds,
-             * the command exits to prevent a permanent block.
+             * Stall detection for the auto driving commands (driveToPoint,
+             * driveForwardMeters, moveThroughPose). If the robot moves less than
+             * STALL_THRESHOLD meters over STALL_TIMEOUT seconds, the command gives
+             * up so the auto can continue instead of pushing into a wall forever.
              */
             public static final double STALL_THRESHOLD = 0.02; // meters
             public static final double STALL_TIMEOUT   = 1.5;  // seconds

@@ -31,7 +31,7 @@ public interface VisionConsumer {
      * pose estimator with a confidence weight.
      *
      * @param pose              estimated robot pose on the field (meters, radians)
-     * @param timestampSeconds  FPGA timestamp when the measurement was captured
+     * @param timestampSeconds  robot timestamp (Timer.getTimestamp()) when the measurement was captured
      * @param stdDevs           measurement confidence [x (m), y (m), heading (rad)]
      *                          — lower values = trust vision more
      */
