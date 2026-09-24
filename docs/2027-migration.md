@@ -34,7 +34,7 @@ We checked WPILib's official compatibility table ([SystemcoreTesting](https://gi
 | Library | Result |
 |---|---|
 | CTRE Phoenix 6 | ✅ `26.70.0-alpha-2` |
-| AdvantageKit | ✅ `27.0.0-alpha-5` (installed, not used yet) |
+| AdvantageKit | ✅ `27.0.0-alpha-5`. Later removed: logging uses WPILib's built-in Telemetry instead. |
 | PathPlanner | ❌ Removed. We're building our own path policy. |
 | QuestNav | ⏸️ No 2027 build yet, so it's parked (see step 6). |
 
@@ -181,7 +181,7 @@ The one v3 trap: **a loop inside a command must call `coroutine.yield()`**, or t
 ## Still to do
 
 - **QuestNav**: restore it when a 2027 build ships (expected at kickoff).
-- **Data logging and match replay**: next project. We'll compare AdvantageKit, WPILib's new Telemetry/Epilogue, and CTRE hoot logs, with a focus on battery and current logging to track down brownouts.
+- **Data logging**: next project. Built on WPILib's new Telemetry, with battery, current and command logging to track down brownouts. (AdvantageKit was compared and removed: we don't need its replay feature, and it would add structure students must remember.)
 - **CAN port**: confirm which physical SystemCore port (`CAN_S0`–`CAN_S4`) the swerve is wired to, and update `Constants.CAN_BUS`.
 
 ## Checklist: doing this yourself next year

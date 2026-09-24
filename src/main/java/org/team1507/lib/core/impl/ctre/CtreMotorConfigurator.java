@@ -174,6 +174,7 @@ public final class CtreMotorConfigurator {
             slot.kV = config.kV();
             slot.kS = config.kS();
             slot.kA = config.kA();
+            slot.StaticFeedforwardSign = config.staticFeedforwardSign();
         }
         applyGravity(config, g -> slot.kG = g, t -> slot.GravityType = t);
     }
@@ -187,6 +188,7 @@ public final class CtreMotorConfigurator {
             slot.kV = config.kV();
             slot.kS = config.kS();
             slot.kA = config.kA();
+            slot.StaticFeedforwardSign = config.staticFeedforwardSign();
         }
         applyGravity(config, g -> slot.kG = g, t -> slot.GravityType = t);
     }
@@ -200,6 +202,7 @@ public final class CtreMotorConfigurator {
             slot.kV = config.kV();
             slot.kS = config.kS();
             slot.kA = config.kA();
+            slot.StaticFeedforwardSign = config.staticFeedforwardSign();
         }
         applyGravity(config, g -> slot.kG = g, t -> slot.GravityType = t);
     }

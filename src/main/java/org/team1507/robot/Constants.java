@@ -63,6 +63,12 @@ public class Constants {
         // auto arrival thresholds, pose-estimator trust, wheel-wear scale).
         public static final class kTuning {
 
+            /** Joystick deadband for teleop driving: stick input below this counts as zero. */
+            public static final double DRIVER_DEADBAND = 0.12;
+
+            /** Teleop rotation speed at full right-stick (rad/s). Math.PI = half a turn per second. */
+            public static final double DRIVER_MAX_ROTATION = Math.PI;
+
             /**
              * Pose estimator standard deviations [x (m), y (m), heading (rad)].
              * Lower = trust that source more.

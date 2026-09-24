@@ -136,6 +136,8 @@ The fix is Phase 1 of the plan below.
 
 ### H4. Zeroing the heading corrupts the field pose on Red
 
+> ✅ **Fixed:** the zero button now sets the field heading to the driver's forward direction (0° Blue, 180° Red). Teleop and `maintainHeadingToTarget` drive with `getDriverRelativeHeading()`, derived from the pose estimate, so QuestNav/AprilTag corrections carry through to driving. The raw gyro is `getGyroHeading()`.
+
 [Swerve.zeroHeading()](../src/main/java/org/team1507/robot/subsystems/Swerve.java#L364-L373) sets the gyro to 0 **and** resets the pose estimator's rotation to 0. On Red, a robot facing away from its driver is at 180° in field coordinates, not 0°. After a zero, auto commands, `pointToTarget` and vision fusion all run on a heading that's 180° off.
 
 **Fix:** keep two separate ideas:
@@ -154,6 +156,8 @@ This is how CTRE's swerve API handles it (`setOperatorPerspectiveForward`).
 **Recommended:** drive the CTRE sim state (`TalonFXSimState`, `CANcoderSimState`, `Pigeon2SimState`) from a WPILib `DCMotorSim` per motor, and delete the `isSimulation()` branches in the read path. Then sim tests the same code the robot runs. It also gives us simulated current draw, so we can test the current budget.
 
 ### M2. `drive()` and `driveRobotRelative()` are identical
+
+> ✅ **Fixed:** `driveRobotRelative()` removed; `drive()` is documented as robot-relative.
 [Swerve.java:232](../src/main/java/org/team1507/robot/subsystems/Swerve.java#L232) says "field-relative" in its javadoc, but it does not convert anything. Callers do the conversion. Pick one name (`driveRobotRelative`) and delete the other.
 
 ### M2b. Auto timer only runs if a routine calls `startTimer()`
@@ -169,6 +173,8 @@ This is how CTRE's swerve API handles it (`setOperatorPerspectiveForward`).
 `VISION_STD_DEV` equals `ODOMETRY_STD_DEV` (0.02 m). Vision is normally trusted *less* than wheel odometry over short times. Revisit this when QuestNav is restored.
 
 ### M6. AdvantageKit is installed but unused
+
+> ✅ **Fixed:** removed. Logging will be built on WPILib 2027 Telemetry.
 It adds a dependency and a naming clash (`LoggedRobot`) without doing anything. Decide in Phase 1: adopt it or remove it.
 
 ---

@@ -58,6 +58,7 @@ import org.team1507.lib.core.impl.ctre.Motor1507;
 import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.swerve.SwerveModule1507;
 import org.team1507.lib.core.swerve.SwerveModule1507.MathConfig;
+import org.team1507.lib.core.util.Alliance;
 import org.team1507.lib.core.util.MotorConfig;
 import org.team1507.lib.core.util.MotorConfig.ControlMode;
 import org.team1507.robot.Constants;
@@ -419,7 +420,7 @@ public final class Swerve extends Subsystem1507 {
 
         this.poseEstimator = new SwerveDrivePoseEstimator(
             kinematics,
-            getHeading(),
+            getGyroHeading(),
             getModulePositions(),
             pose,
             kSwerve.kTuning.ODOMETRY_STD_DEV,
@@ -633,6 +634,7 @@ public final class Swerve extends Subsystem1507 {
             .inverted(inverted)
             .withPID(g.kP, g.kI, g.kD)
             .withFeedforward(g.kS, g.kV, g.kA)
+            .withStaticFeedforwardSign(g.StaticFeedforwardSign)
             .withStatorCurrentLimit(
                 Amps.of(TunerConstants.steerInitialConfigs.CurrentLimits.StatorCurrentLimit))
             .withSupplyCurrentLimit(STEER_SUPPLY_LIMIT)
@@ -658,14 +660,14 @@ public final class Swerve extends Subsystem1507 {
     public void periodic() {
         if (RobotBase.isSimulation()) {
             // Integrate heading before poseEstimator.update() so the heading is fresh.
-            // getHeading() reads simHeadingRadians directly in sim — no Pigeon signal needed.
+            // getGyroHeading() reads simHeadingRadians directly in sim — no Pigeon signal needed.
             simHeadingRadians += lastCommandedSpeeds.omega * 0.02;
         } else {
             BaseStatusSignal.refreshAll(allSignals);
         }
 
         pose = poseEstimator.update(
-            getHeading(),
+            getGyroHeading(),
             getModulePositions()
         );
 
@@ -691,8 +693,13 @@ public final class Swerve extends Subsystem1507 {
     // ============================================================
 
     /**
-     * Drives using field-relative ChassisVelocities (x = forward, y = left).
+     * Drives using ROBOT-relative ChassisVelocities (x = robot forward, y = robot left).
      * The kinematics layer converts these to individual module states.
+     *
+     * <p>To drive in field or driver directions, convert first:
+     * {@code velocities.toRobotRelative(getPose().getRotation())} (field) or
+     * {@code velocities.toRobotRelative(getDriverRelativeHeading())} (driver).
+     * Every command in this file does that before calling drive().
      *
      * <p>{@code ChassisVelocities.discretize()} is applied before kinematics to correct
      * for the skew that occurs when the robot translates and rotates simultaneously
@@ -700,28 +707,6 @@ public final class Swerve extends Subsystem1507 {
      * driving in a straight line.
      */
     public void drive(ChassisVelocities speeds) {
-        lastCommandedSpeeds = speeds;
-        SwerveModuleVelocity[] states = kinematics.toSwerveModuleVelocities(
-            speeds.discretize(0.02)
-        );
-        // 2027: desaturateWheelVelocities returns a NEW array (it no longer edits
-        // the one passed in), so the result must be assigned back.
-        states = SwerveDriveKinematics.desaturateWheelVelocities(states, maxSpeedMetersPerSecond);
-
-        frontLeft.setDesiredState(states[0]);
-        frontRight.setDesiredState(states[1]);
-        backLeft.setDesiredState(states[2]);
-        backRight.setDesiredState(states[3]);
-    }
-
-    /**
-     * Drives using robot-relative ChassisVelocities.
-     * Used by movement commands that already handle the field→robot conversion.
-     *
-     * <p>Applies {@code ChassisVelocities.discretize()} for the same skew correction
-     * as {@link #drive(ChassisVelocities)}.
-     */
-    public void driveRobotRelative(ChassisVelocities speeds) {
         lastCommandedSpeeds = speeds;
         SwerveModuleVelocity[] states = kinematics.toSwerveModuleVelocities(
             speeds.discretize(0.02)
@@ -767,13 +752,41 @@ public final class Swerve extends Subsystem1507 {
     // Observation
     // ============================================================
 
-    /** Returns the robot's current estimated field pose. */
+    /** Returns the robot's current estimated field pose (Blue-origin field coordinates). */
     public Pose2d getPose() {
         return pose;
     }
 
-    /** Returns the robot's current heading from the Pigeon2 (or simulated equivalent). */
-    public Rotation2d getHeading() {
+    /**
+     * The field direction the driver calls "forward": straight away from their
+     * own driver station. 0° on Blue, 180° on Red (field coordinates are always
+     * Blue-origin). Blue when the alliance is unknown (practice, simulation).
+     */
+    private static Rotation2d driverForward() {
+        return Alliance.isRed() ? Rotation2d.fromDegrees(180.0) : Rotation2d.ZERO;
+    }
+
+    /**
+     * The robot's heading as the DRIVER sees it: 0° = facing straight away from
+     * the driver, on either alliance. Use this for driver-relative (field-oriented)
+     * teleop driving.
+     *
+     * <p>It comes from the pose estimate, so when vision corrects the pose,
+     * driving corrects with it.
+     */
+    public Rotation2d getDriverRelativeHeading() {
+        return getPose().getRotation().minus(driverForward());
+    }
+
+    /**
+     * The raw gyro heading from the Pigeon2 (or simulated equivalent).
+     *
+     * <p>This is NOT the field heading: it starts wherever the robot was pointing
+     * at power-on. The pose estimator turns it into a field heading. Use
+     * {@code getPose().getRotation()} for the field heading, or
+     * {@link #getDriverRelativeHeading()} for teleop driving.
+     */
+    public Rotation2d getGyroHeading() {
         if (RobotBase.isSimulation()) {
             return Rotation2d.fromRadians(simHeadingRadians);
         }
@@ -792,7 +805,7 @@ public final class Swerve extends Subsystem1507 {
      */
     public ChassisVelocities getFieldRelativeSpeeds() {
         return kinematics.toChassisVelocities(getModuleStates())
-            .toFieldRelative(getHeading());
+            .toFieldRelative(getPose().getRotation());
     }
 
     /** Returns the configured maximum translational speed in m/s. */
@@ -829,18 +842,20 @@ public final class Swerve extends Subsystem1507 {
     }
 
     /**
-     * Resets the robot's heading to 0° so its current facing direction becomes
-     * field-forward. Also resets the pose estimator's heading component.
+     * Tells the robot it is facing straight away from the driver.
+     *
+     * <p>Sets the pose estimator's FIELD heading to the driver's forward direction:
+     * 0° on Blue, 180° on Red. The robot's position is kept. The raw gyro is not
+     * touched; the pose estimator handles the offset.
+     *
+     * <p>(Until 2027 this set the heading to 0° on both alliances, which made the
+     * field pose 180° wrong on Red and confused auto commands and vision.)
+     *
+     * <p>With QuestNav/AprilTag vision correcting the pose, this is only a fallback
+     * for when vision isn't available.
      */
     public void zeroHeading() {
-        pigeon.setYaw(0.0);
-        // In simulation, getHeading() reads simHeadingRadians directly — the Phoenix
-        // sim backend doesn't update it synchronously from setYaw(). Mirror the reset
-        // here so simulation and real hardware behave identically.
-        simHeadingRadians = 0.0;
-        Rotation2d zero = new Rotation2d();
-        pose = new Pose2d(pose.getTranslation(), zero);
-        poseEstimator.resetPosition(zero, getModulePositions(), pose);
+        resetPose(new Pose2d(getPose().getTranslation(), driverForward()));
     }
 
     /**
@@ -852,7 +867,7 @@ public final class Swerve extends Subsystem1507 {
     public void resetPose(Pose2d pose) {
         this.pose = pose;
         poseEstimator.resetPosition(
-            getHeading(),
+            getGyroHeading(),
             getModulePositions(),
             pose
         );
@@ -1028,9 +1043,8 @@ public final class Swerve extends Subsystem1507 {
     }
 
     /**
-     * Zeroes the gyro so the robot's current facing direction becomes field-forward (0°).
-     * Bound to the bottom face button in DriverTeleop. Press while the robot
-     * is physically pointing toward the opposing alliance wall.
+     * Tells the robot it is facing straight away from the driver (see zeroHeading()).
+     * Bound to the bottom face button in DriverTeleop.
      */
     public Command zeroHeadingCommand() {
         return run(coroutine -> zeroHeading())
@@ -1153,8 +1167,8 @@ public final class Swerve extends Subsystem1507 {
      * Use case: driver holds a button to auto-aim while keeping full translation control.
      *
      * @param targetPoseSupplier  field target to aim at (re-read every loop)
-     * @param xSupplier           driver forward/back input (m/s, field-relative)
-     * @param ySupplier           driver strafe input (m/s, field-relative)
+     * @param xSupplier           driver forward/back input (m/s, driver-relative: + = away from driver)
+     * @param ySupplier           driver strafe input (m/s, driver-relative: + = driver's left)
      */
     public Command maintainHeadingToTarget(
         Supplier<Pose2d> targetPoseSupplier,
@@ -1185,11 +1199,12 @@ public final class Swerve extends Subsystem1507 {
                 .orElse(currentPose.getRotation());
 
             double omega = computeOmega(currentPose.getRotation(), desiredHeading);
-            // xSupplier / ySupplier are field-relative — convert to robot-relative
-            // before passing to drive() so translation is correct at any heading.
+            // xSupplier / ySupplier are driver-relative — convert to robot-relative
+            // before passing to drive() so translation is correct at any heading,
+            // on either alliance.
             drive(new ChassisVelocities(
                 xSupplier.get(), ySupplier.get(), omega
-            ).toRobotRelative(currentPose.getRotation()));
+            ).toRobotRelative(getDriverRelativeHeading()));
         })
         .whenCanceled(this::stop)
         .named("Swerve.maintainHeadingToTarget");
@@ -1241,7 +1256,7 @@ public final class Swerve extends Subsystem1507 {
 
                 // Drive toward the target, slowing down as it gets close
                 double speed = Math.min(ARRIVE_KP * distance, velocity);
-                driveRobotRelative(new ChassisVelocities(
+                drive(new ChassisVelocities(
                     toTarget.getX() / distance * speed,
                     toTarget.getY() / distance * speed,
                     computeOmega(current.getRotation(), targetPose.getRotation())
@@ -1324,7 +1339,7 @@ public final class Swerve extends Subsystem1507 {
                     -maxAngular, maxAngular
                 );
 
-                driveRobotRelative(new ChassisVelocities(
+                drive(new ChassisVelocities(
                     dx / distance * maxSpeed, dy / distance * maxSpeed, omega
                 ).toRobotRelative(current.getRotation()));
 
@@ -1374,7 +1389,7 @@ public final class Swerve extends Subsystem1507 {
                 }
 
                 double speed = Math.min(ARRIVE_KP * distance, velocity);
-                driveRobotRelative(new ChassisVelocities(
+                drive(new ChassisVelocities(
                     toTarget.getX() / distance * speed,
                     toTarget.getY() / distance * speed,
                     computeOmega(current.getRotation(), heading)

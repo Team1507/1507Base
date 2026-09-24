@@ -13,6 +13,7 @@ import static org.wpilib.units.Units.Amps;
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 import com.ctre.phoenix6.signals.ForwardLimitTypeValue;
 import com.ctre.phoenix6.signals.ReverseLimitTypeValue;
+import com.ctre.phoenix6.signals.StaticFeedforwardSignValue;
 
 import org.wpilib.units.measure.Current;
 
@@ -35,6 +36,7 @@ public record MotorConfig(
 
         double kP, double kI, double kD,
         double kV, double kS, double kA,
+        StaticFeedforwardSignValue staticFeedforwardSign,
 
         double kG,
         GravityType gravityType,
@@ -139,6 +141,7 @@ public record MotorConfig(
 
         private double kP = 0, kI = 0, kD = 0;
         private double kV = 0, kS = 0, kA = 0;
+        private StaticFeedforwardSignValue staticFeedforwardSign = StaticFeedforwardSignValue.UseVelocitySign;
 
         private double kG = 0;
         private GravityType gravityType = GravityType.NONE;
@@ -245,6 +248,18 @@ public record MotorConfig(
          */
         public Builder withFeedforward(double kS, double kV, double kA) {
             this.kS = kS; this.kV = kV; this.kA = kA; return this;
+        }
+
+        /**
+         * Chooses which direction kS pushes. The CTRE default,
+         * {@code UseVelocitySign}, pushes in the direction of travel.
+         * {@code UseClosedLoopSign} pushes toward the target, which stops
+         * position loops (like swerve steering) from jittering at the setpoint
+         * when kS is not zero. Tuner X's swerve generator uses UseClosedLoopSign
+         * for steering.
+         */
+        public Builder withStaticFeedforwardSign(StaticFeedforwardSignValue sign) {
+            this.staticFeedforwardSign = sign; return this;
         }
 
         /**
@@ -553,6 +568,7 @@ public record MotorConfig(
                 mode, motorInverted,
                 kP, kI, kD,
                 kV, kS, kA,
+                staticFeedforwardSign,
                 kG, gravityType,
                 peakForwardVoltage, peakReverseVoltage,
 
