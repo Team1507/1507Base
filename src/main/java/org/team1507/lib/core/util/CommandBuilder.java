@@ -9,7 +9,7 @@
 package org.team1507.lib.core.util;
 
 import org.wpilib.system.Timer;
-import org.wpilib.smartdashboard.SmartDashboard;
+import org.wpilib.tunable.Tunables;
 import org.wpilib.command2.Command;
 import org.wpilib.command2.Subsystem;
 
@@ -254,8 +254,11 @@ public class CommandBuilder extends Command {
     }
 
     /**
-     * Registers this command on SmartDashboard so it can be triggered from the
-     * driver station dashboard (Elastic, Shuffleboard, etc.).
+     * Publishes this command as a dashboard button (Elastic) so it can be
+     * triggered from the driver station.
+     *
+     * <p>2027: SmartDashboard was removed. Commands are now published through
+     * WPILib's Tunables system ({@link Tunables#publish}).
      *
      * <p>Call this after {@link #named(String)} so the widget label matches the
      * command name. Combine with {@link #runsWhenDisabled(boolean) runsWhenDisabled(true)}
@@ -272,7 +275,7 @@ public class CommandBuilder extends Command {
      * @return this builder
      */
     public CommandBuilder publishToDashboard() {
-        SmartDashboard.putData(getName(), this);
+        Tunables.publish(getName(), this);
         return this;
     }
 

@@ -16,6 +16,7 @@ import org.team1507.lib.core.util.MotorConfig;
 import org.team1507.lib.core.util.MotorConfig.ControlMode;
 
 import com.ctre.phoenix6.CANBus;
+import org.wpilib.hardware.bus.CANPort;
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 
 import org.wpilib.math.linalg.Matrix;
@@ -31,12 +32,14 @@ import org.wpilib.units.measure.LinearVelocity;
 public class Constants {
 
     // ============================================================
-    // CAN Bus — change "canivore" to your CANivore's name if used.
-    // All TalonFX, CANcoder, and Pigeon2 devices must share a bus.
+    // CAN Bus — SystemCore has five CAN ports (CAN_S0 .. CAN_S4).
+    // Every CTRE device must be told which bus it is on.
+    // CAN_S0 replaces the roboRIO's single built-in "rio" bus.
+    // If a CANivore is used, create it with new CANBus("canivore")
+    // and pass that bus to the devices wired to it.
     // ============================================================
 
-    public static final CANBus CAN_BUS    = new CANBus("rio");
-    public static final CANBus SWERVE_BUS = new CANBus("canivore");
+    public static final CANBus CAN_BUS = new CANBus(CANPort.CAN_S0);
 
     // ============================================================
     // Hardware Map — all CAN IDs and sensor offsets in one place.

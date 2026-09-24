@@ -17,7 +17,7 @@ import com.ctre.phoenix6.sim.CANcoderSimState;
 
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.SwerveModulePosition;
-import org.wpilib.math.kinematics.SwerveModuleState;
+import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.AngularVelocity;
 import org.wpilib.framework.RobotBase;
@@ -48,7 +48,7 @@ public final class SwerveModule1507 {
     private final MathConfig math;
     private final double driveMetersScale;
 
-    private Rotation2d lastAngle = Rotation2d.kZero;
+    private Rotation2d lastAngle = Rotation2d.ZERO;
 
     // Sim state
     private double simSteerAngleRotations = 0.0;
@@ -108,14 +108,16 @@ public final class SwerveModule1507 {
      *
      * @param desired the target module state
      */
-    public void setDesiredState(SwerveModuleState desired) {
+    public void setDesiredState(SwerveModuleVelocity desired) {
         Rotation2d current = getAngle();
-        SwerveModuleState optimized = new SwerveModuleState(
+        SwerveModuleVelocity optimized = new SwerveModuleVelocity(
             desired.velocity,
             desired.angle
         );
 
-        optimized.optimize(current);
+        // 2027: SwerveModuleVelocity is immutable. optimize() returns a NEW object
+        // instead of changing this one, so the result must be assigned back.
+        optimized = optimized.optimize(current);
 
         Rotation2d targetAngle =
             Math.abs(optimized.velocity) < 0.01
@@ -225,12 +227,12 @@ public final class SwerveModule1507 {
     }
 
     /** Returns the current module state (speed in m/s and steer angle). */
-    public SwerveModuleState getState() {
+    public SwerveModuleVelocity getState() {
         double mps = RobotBase.isSimulation()
             ? simDriveVelocityRps * math.wheelCircumferenceMeters()
             : wheelRpsToMetersPerSecond(correctedWheelRps()) * driveMetersScale;
 
-        return new SwerveModuleState(mps, getAngle());
+        return new SwerveModuleVelocity(mps, getAngle());
     }
 
     /** Returns the current module position (distance traveled in meters and steer angle). */

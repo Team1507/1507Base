@@ -9,10 +9,6 @@
 package org.team1507.lib.core.util;
 
 import org.wpilib.driverstation.MatchState;
-import org.wpilib.driverstation.RobotState;
-import org.wpilib.driverstation.Alliance;
-import org.wpilib.driverstation.MatchType;
-import org.wpilib.driverstation.DriverStationErrors;
 
 /**
  * Alliance-color utilities for runtime alliance detection.
@@ -27,7 +23,7 @@ import org.wpilib.driverstation.DriverStationErrors;
  * as if it is on Blue alliance. To test Red-alliance behavior without a field,
  * set the alliance color in the DriverStation application before enabling.
  *
- * @see org.wpilib.driverstation.MatchState.getAlliance()
+ * @see org.wpilib.driverstation.MatchState#getAlliance()
  */
 public final class Alliance {
 
@@ -45,7 +41,8 @@ public final class Alliance {
      * @return {@code true} if Red alliance; {@code false} if Blue or unknown
      */
     public static boolean isRed() {
-        return MatchState.getAlliance().orElse(Alliance.BLUE)
-            == Alliance.RED;
+        // Fully qualified: this class is also named Alliance.
+        return MatchState.getAlliance().orElse(org.wpilib.driverstation.Alliance.BLUE)
+            == org.wpilib.driverstation.Alliance.RED;
     }
 }

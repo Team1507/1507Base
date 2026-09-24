@@ -8,6 +8,7 @@
 
 package org.team1507.lib.core.impl.ctre;
 
+import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.PositionDutyCycle;
@@ -88,11 +89,13 @@ public final class Motor1507 {
      * @param name    human-readable motor name (e.g. "Feeder", "IntakeArm")
      * @param type    motor hardware type
      * @param canId   CAN device ID
+     * @param canBus  CAN bus the motor is wired to (SystemCore has several;
+     *                use {@code Constants.CAN_BUS} unless the robot uses more than one)
      * @param configs motor configuration specifications
      */
-    public Motor1507(String name, Type type, int canId, MotorConfig... configs) {
+    public Motor1507(String name, Type type, int canId, CANBus canBus, MotorConfig... configs) {
         this.name = name;
-        this.motor = createMotor(type, canId);
+        this.motor = createMotor(type, canId, canBus);
         CtreMotorConfigurator.apply(motor, configs);
 
         this.signals = CtreMotorSignals.fromMotor(motor);
@@ -391,10 +394,10 @@ public final class Motor1507 {
         return name + "/" + category + "/" + field;
     }
 
-    private static Object createMotor(Type type, int canId) {
+    private static Object createMotor(Type type, int canId, CANBus canBus) {
         return switch (type) {
-            case FX  -> new TalonFX(canId);
-            case FXS -> new TalonFXS(canId);
+            case FX  -> new TalonFX(canId, canBus);
+            case FXS -> new TalonFXS(canId, canBus);
         };
     }
 }

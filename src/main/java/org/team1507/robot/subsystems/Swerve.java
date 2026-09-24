@@ -39,6 +39,7 @@ import org.team1507.lib.core.impl.ctre.Motor1507;
 import org.team1507.lib.core.logging.Telemetry;
 import org.team1507.lib.core.swerve.SwerveModule1507;
 import org.team1507.lib.core.swerve.SwerveModule1507.MathConfig;
+import org.team1507.robot.Constants;
 import org.team1507.robot.Constants.RobotMap;
 import org.team1507.robot.Constants.kSwerve;
 import static org.team1507.robot.Constants.kSwerve.kTuning.*;
@@ -74,7 +75,7 @@ public final class Swerve extends Subsystem1507 {
 
     private Pose2d pose = new Pose2d();
 
-    private final SwerveModuleState[] moduleStates = new SwerveModuleState[4];
+    private final SwerveModuleVelocity[] moduleStates = new SwerveModuleVelocity[4];
     private final SwerveModulePosition[] modulePositions = new SwerveModulePosition[4];
 
     private final double maxSpeedMetersPerSecond;
@@ -106,38 +107,38 @@ public final class Swerve extends Subsystem1507 {
         );
 
         this.frontLeft = new SwerveModule1507("FrontLeft",
-            new Motor1507("Swerve/FrontLeft/Drive", Motor1507.Type.FX, RobotMap.FL_DRIVE, kSwerve.FRONT_LEFT_DRIVE_CONFIG),
-            new Motor1507("Swerve/FrontLeft/Steer", Motor1507.Type.FX, RobotMap.FL_STEER, kSwerve.FRONT_LEFT_STEER_CONFIG),
-            new CANcoder(RobotMap.FL_ENCODER),
+            new Motor1507("Swerve/FrontLeft/Drive", Motor1507.Type.FX, RobotMap.FL_DRIVE, Constants.CAN_BUS, kSwerve.FRONT_LEFT_DRIVE_CONFIG),
+            new Motor1507("Swerve/FrontLeft/Steer", Motor1507.Type.FX, RobotMap.FL_STEER, Constants.CAN_BUS, kSwerve.FRONT_LEFT_STEER_CONFIG),
+            new CANcoder(RobotMap.FL_ENCODER, Constants.CAN_BUS),
             new Rotation2d(Rotations.of(RobotMap.FL_ENCODER_OFFSET)),
             math, kSwerve.DRIVE_METERS_SCALE
         );
 
         this.frontRight = new SwerveModule1507("FrontRight",
-            new Motor1507("Swerve/FrontRight/Drive", Motor1507.Type.FX, RobotMap.FR_DRIVE, kSwerve.FRONT_RIGHT_DRIVE_CONFIG),
-            new Motor1507("Swerve/FrontRight/Steer", Motor1507.Type.FX, RobotMap.FR_STEER, kSwerve.FRONT_RIGHT_STEER_CONFIG),
-            new CANcoder(RobotMap.FR_ENCODER),
+            new Motor1507("Swerve/FrontRight/Drive", Motor1507.Type.FX, RobotMap.FR_DRIVE, Constants.CAN_BUS, kSwerve.FRONT_RIGHT_DRIVE_CONFIG),
+            new Motor1507("Swerve/FrontRight/Steer", Motor1507.Type.FX, RobotMap.FR_STEER, Constants.CAN_BUS, kSwerve.FRONT_RIGHT_STEER_CONFIG),
+            new CANcoder(RobotMap.FR_ENCODER, Constants.CAN_BUS),
             new Rotation2d(Rotations.of(RobotMap.FR_ENCODER_OFFSET)),
             math, kSwerve.DRIVE_METERS_SCALE
         );
 
         this.backLeft = new SwerveModule1507("BackLeft",
-            new Motor1507("Swerve/BackLeft/Drive", Motor1507.Type.FX, RobotMap.BL_DRIVE, kSwerve.BACK_LEFT_DRIVE_CONFIG),
-            new Motor1507("Swerve/BackLeft/Steer", Motor1507.Type.FX, RobotMap.BL_STEER, kSwerve.BACK_LEFT_STEER_CONFIG),
-            new CANcoder(RobotMap.BL_ENCODER),
+            new Motor1507("Swerve/BackLeft/Drive", Motor1507.Type.FX, RobotMap.BL_DRIVE, Constants.CAN_BUS, kSwerve.BACK_LEFT_DRIVE_CONFIG),
+            new Motor1507("Swerve/BackLeft/Steer", Motor1507.Type.FX, RobotMap.BL_STEER, Constants.CAN_BUS, kSwerve.BACK_LEFT_STEER_CONFIG),
+            new CANcoder(RobotMap.BL_ENCODER, Constants.CAN_BUS),
             new Rotation2d(Rotations.of(RobotMap.BL_ENCODER_OFFSET)),
             math, kSwerve.DRIVE_METERS_SCALE
         );
 
         this.backRight = new SwerveModule1507("BackRight",
-            new Motor1507("Swerve/BackRight/Drive", Motor1507.Type.FX, RobotMap.BR_DRIVE, kSwerve.BACK_RIGHT_DRIVE_CONFIG),
-            new Motor1507("Swerve/BackRight/Steer", Motor1507.Type.FX, RobotMap.BR_STEER, kSwerve.BACK_RIGHT_STEER_CONFIG),
-            new CANcoder(RobotMap.BR_ENCODER),
+            new Motor1507("Swerve/BackRight/Drive", Motor1507.Type.FX, RobotMap.BR_DRIVE, Constants.CAN_BUS, kSwerve.BACK_RIGHT_DRIVE_CONFIG),
+            new Motor1507("Swerve/BackRight/Steer", Motor1507.Type.FX, RobotMap.BR_STEER, Constants.CAN_BUS, kSwerve.BACK_RIGHT_STEER_CONFIG),
+            new CANcoder(RobotMap.BR_ENCODER, Constants.CAN_BUS),
             new Rotation2d(Rotations.of(RobotMap.BR_ENCODER_OFFSET)),
             math, kSwerve.DRIVE_METERS_SCALE
         );
 
-        this.pigeon = new Pigeon2(RobotMap.PIGEON2);
+        this.pigeon = new Pigeon2(RobotMap.PIGEON2, Constants.CAN_BUS);
         this.maxSpeedMetersPerSecond = kSwerve.MAX_SPEED;
         this.maxAngularMetersPerSecond = kSwerve.MAX_ANGULAR_RATE;
 
@@ -230,10 +231,12 @@ public final class Swerve extends Subsystem1507 {
      */
     public void drive(ChassisVelocities speeds) {
         lastCommandedSpeeds = speeds;
-        SwerveModuleState[] states = kinematics.toSwerveModuleStates(
-            ChassisVelocities.discretize(speeds, 0.02)
+        SwerveModuleVelocity[] states = kinematics.toSwerveModuleVelocities(
+            speeds.discretize(0.02)
         );
-        SwerveDriveKinematics.desaturateWheelSpeeds(states, maxSpeedMetersPerSecond);
+        // 2027: desaturateWheelVelocities returns a NEW array (it no longer edits
+        // the one passed in), so the result must be assigned back.
+        states = SwerveDriveKinematics.desaturateWheelVelocities(states, maxSpeedMetersPerSecond);
 
         frontLeft.setDesiredState(states[0]);
         frontRight.setDesiredState(states[1]);
@@ -250,10 +253,12 @@ public final class Swerve extends Subsystem1507 {
      */
     public void driveRobotRelative(ChassisVelocities speeds) {
         lastCommandedSpeeds = speeds;
-        SwerveModuleState[] states = kinematics.toSwerveModuleStates(
-            ChassisVelocities.discretize(speeds, 0.02)
+        SwerveModuleVelocity[] states = kinematics.toSwerveModuleVelocities(
+            speeds.discretize(0.02)
         );
-        SwerveDriveKinematics.desaturateWheelSpeeds(states, maxSpeedMetersPerSecond);
+        // 2027: desaturateWheelVelocities returns a NEW array (it no longer edits
+        // the one passed in), so the result must be assigned back.
+        states = SwerveDriveKinematics.desaturateWheelVelocities(states, maxSpeedMetersPerSecond);
 
         frontLeft.setDesiredState(states[0]);
         frontRight.setDesiredState(states[1]);
@@ -315,9 +320,8 @@ public final class Swerve extends Subsystem1507 {
      * Used by maintainHeadingToTarget for motion compensation.
      */
     public ChassisVelocities getFieldRelativeSpeeds() {
-        return ChassisVelocities.fromRobotRelativeSpeeds(
-            kinematics.toChassisVelocities(getModuleStates()), getHeading()
-        );
+        return kinematics.toChassisVelocities(getModuleStates())
+            .toFieldRelative(getHeading());
     }
 
     /** Returns the configured maximum translational speed in m/s. */
@@ -441,7 +445,7 @@ public final class Swerve extends Subsystem1507 {
         return new Rotation2d(Math.atan2(dy, dx));
     }
 
-    private SwerveModuleState[] getModuleStates() {
+    private SwerveModuleVelocity[] getModuleStates() {
         moduleStates[0] = frontLeft.getState();
         moduleStates[1] = frontRight.getState();
         moduleStates[2] = backLeft.getState();
@@ -674,14 +678,17 @@ public final class Swerve extends Subsystem1507 {
 
             Rotation2d desiredHeading = compensated
                 .minus(currentPose.getTranslation())
-                .getAngle();
+                .getAngle()
+                // 2027: getAngle() is empty for a zero-length vector (robot exactly
+                // on the target). Keep the current heading in that case.
+                .orElse(currentPose.getRotation());
 
             double omega = computeOmega(currentPose.getRotation(), desiredHeading);
             // xSupplier / ySupplier are field-relative — convert to robot-relative
             // before passing to drive() so translation is correct at any heading.
-            drive(ChassisVelocities.fromFieldRelativeSpeeds(
-                xSupplier.get(), ySupplier.get(), omega, currentPose.getRotation()
-            ));
+            drive(new ChassisVelocities(
+                xSupplier.get(), ySupplier.get(), omega
+            ).toRobotRelative(currentPose.getRotation()));
         })
         .finallyDo(interrupted -> stop())
         .withName("Swerve.maintainHeadingToTarget");
@@ -725,11 +732,10 @@ public final class Swerve extends Subsystem1507 {
             double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
             double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
 
-            driveRobotRelative(ChassisVelocities.fromFieldRelativeSpeeds(
+            driveRobotRelative(new ChassisVelocities(
                 ux * apfSpeed, uy * apfSpeed,
-                computeOmega(heading, targetPose.getRotation()),
-                heading
-            ));
+                computeOmega(heading, targetPose.getRotation())
+            ).toRobotRelative(heading));
 
             // Advance stall checkpoint whenever the robot makes meaningful progress
             double moveDx = Math.abs(current.getX() - stall[0]);
@@ -813,9 +819,9 @@ public final class Swerve extends Subsystem1507 {
                 -maxAngular, maxAngular
             );
 
-            driveRobotRelative(ChassisVelocities.fromFieldRelativeSpeeds(
-                dirX * maxSpeed, dirY * maxSpeed, omega, current.getRotation()
-            ));
+            driveRobotRelative(new ChassisVelocities(
+                dirX * maxSpeed, dirY * maxSpeed, omega
+            ).toRobotRelative(current.getRotation()));
 
             // Update stall tracker if the robot is actually moving
             double moveDx = Math.abs(current.getX() - stall[0]);
@@ -894,11 +900,10 @@ public final class Swerve extends Subsystem1507 {
             double ux = (distance > ARRIVE_THRESHOLD) ? dx / distance : 0.0;
             double uy = (distance > ARRIVE_THRESHOLD) ? dy / distance : 0.0;
 
-            driveRobotRelative(ChassisVelocities.fromFieldRelativeSpeeds(
+            driveRobotRelative(new ChassisVelocities(
                 ux * apfSpeed, uy * apfSpeed,
-                computeOmega(hdg, target[0].getRotation()),
-                hdg
-            ));
+                computeOmega(hdg, target[0].getRotation())
+            ).toRobotRelative(hdg));
         }))
         .until(() ->
             getPose().getTranslation().getDistance(target[0].getTranslation()) < ARRIVE_THRESHOLD

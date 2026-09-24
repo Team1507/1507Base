@@ -12,7 +12,7 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.networktables.NetworkTableInstance;
 import org.wpilib.networktables.StructPublisher;
 import org.wpilib.system.Timer;
-import org.wpilib.math.kinematics.SwerveModuleState;
+import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.networktables.StructArrayPublisher;
 
 import java.util.ArrayList;
@@ -62,7 +62,7 @@ public final class Telemetry {
     private static final Map<TelemetryRate, Double> lastUpdateTime =
         new EnumMap<>(TelemetryRate.class);
 
-    private static final Map<String, StructArrayPublisher<SwerveModuleState>> moduleStatePublishers = new HashMap<>();
+    private static final Map<String, StructArrayPublisher<SwerveModuleVelocity>> moduleStatePublishers = new HashMap<>();
 
     private Telemetry() {}
 
@@ -162,20 +162,20 @@ public final class Telemetry {
     }
 
     /**
-     * Publishes an array of {@link SwerveModuleState} structs so tools like
+     * Publishes an array of {@link SwerveModuleVelocity} structs so tools like
      * AdvantageScope can visualize module states directly.
      *
      * @param key    NetworkTables key (e.g. "Swerve/ModuleStates")
      * @param states module states to publish
      */
-    public static void set(String key, SwerveModuleState[] states) {
-        StructArrayPublisher<SwerveModuleState> pub = moduleStatePublishers.get(key);
+    public static void set(String key, SwerveModuleVelocity[] states) {
+        StructArrayPublisher<SwerveModuleVelocity> pub = moduleStatePublishers.get(key);
 
         if (pub == null) {
             // Use `key` as the full NT path — callers pass "Swerve/ModuleStates",
             // not just "ModuleStates" inside a hardcoded "Swerve" table.
             pub = NetworkTableInstance.getDefault()
-                .getStructArrayTopic(key, SwerveModuleState.struct).publish();
+                .getStructArrayTopic(key, SwerveModuleVelocity.struct).publish();
             moduleStatePublishers.put(key, pub);
         }
 

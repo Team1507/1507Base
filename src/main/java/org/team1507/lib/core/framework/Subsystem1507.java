@@ -9,10 +9,6 @@
 package org.team1507.lib.core.framework;
 
 import org.wpilib.math.geometry.Pose2d;
-import org.wpilib.driverstation.MatchState;
-import org.wpilib.driverstation.RobotState;
-import org.wpilib.driverstation.Alliance;
-import org.wpilib.driverstation.MatchType;
 import org.wpilib.driverstation.DriverStationErrors;
 import org.wpilib.command2.SubsystemBase;
 
@@ -21,7 +17,7 @@ import org.team1507.lib.core.logging.Telemetry;
 /**
  * Base class for all Team 1507 subsystems.
  *
- * <p>Registers a subsystem name with WPILib (used by Shuffleboard and the
+ * <p>Registers a subsystem name with WPILib (used by dashboards and the
  * command scheduler) and provides two tools for telemetry:
  *
  * <ul>
@@ -38,7 +34,7 @@ import org.team1507.lib.core.logging.Telemetry;
  * <p>Usage in a subsystem:
  * <pre>
  *   // Motor names include the full NT path so inputs nest under the subsystem:
- *   motor = new Motor1507(key("Motor"), Motor1507.Type.FX, id, config);
+ *   motor = new Motor1507(key("Motor"), Motor1507.Type.FX, id, Constants.CAN_BUS, config);
  *
  *   // periodic() calls use log() instead of Telemetry.set():
  *   log("AngleDegrees", getCurrentAngle());
@@ -68,7 +64,7 @@ public abstract class Subsystem1507 extends SubsystemBase {
      * <p>Use this when constructing motors so their input fields nest under
      * this subsystem in AdvantageScope:
      * <pre>
-     *   new Motor1507(key("MotorA"), Motor1507.Type.FX, id, config)
+     *   new Motor1507(key("MotorA"), Motor1507.Type.FX, id, Constants.CAN_BUS, config)
      *   // → Motor1507 publishes at Arm/MotorA/Input/Position, etc.
      * </pre>
      *
