@@ -6,38 +6,51 @@
 //   ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝
 //                           TEAM 1507 WARLOCKS
 
-package org.team1507.robot.auto.nodes;
+package org.team1507.robot.auto;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import org.junit.jupiter.api.Test;
+
+import org.wpilib.command3.Scheduler;
 import org.wpilib.math.geometry.Pose2d;
-import org.wpilib.math.geometry.Rotation2d;
-import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.networktables.BooleanEntry;
+import org.wpilib.networktables.NetworkTableInstance;
+import org.wpilib.tunable.TunableRegistry;
+
+import org.team1507.robot.TestRobot;
+import org.team1507.robot.auto.nodes.Nodes;
+import org.team1507.robot.subsystems.Swerve;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Node
+// PoseSeedsTest
 //
-// Two factory methods with intentionally different return types:
-//
-//   Node.at(x, y, degrees)  →  Pose2d       — robot navigation targets
-//   Node.location(x, y)     →  Translation2d — field structure positions
-//
-// The type difference is the distinction: robot nodes have a heading because
-// the robot must face a specific direction when it arrives. Field element nodes
-// are just locations — they describe where a structure is, not how to face it.
-// Passing a Translation2d to checkpoint() / endpoint() is a compile error, which
-// forces students to think about what heading the robot needs before using the
-// position. (Field locations are what .facing(...) takes: "face the hub".)
+// Presses the Seed Left dashboard button the way Elastic does (writing true to
+// /Tunables/Auto/SeedLeft) and checks the robot's pose moves to the left start
+// node, and that the button resets itself.
 // ─────────────────────────────────────────────────────────────────────────────
-public final class Node {
+class PoseSeedsTest {
 
-    private Node() {}
+    @Test
+    void seedLeftSetsThePoseToTheLeftStart() {
+        Swerve swerve = TestRobot.get().swerve;
+        TestRobot.setAlliance(false);
+        swerve.resetPose(new Pose2d());
 
-    /** Robot navigation target — position in meters, heading in degrees. */
-    public static Pose2d at(double xMeters, double yMeters, double headingDegrees) {
-        return new Pose2d(xMeters, yMeters, Rotation2d.fromDegrees(headingDegrees));
-    }
+        BooleanEntry button = NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Tunables/Auto/SeedLeft").getEntry(false);
+        button.set(true);                       // the dashboard press
 
-    /** Field structure position — location only, no heading. */
-    public static Translation2d location(double xMeters, double yMeters) {
-        return new Translation2d(xMeters, yMeters);
+        for (int i = 0; i < 5; i++) {
+            TunableRegistry.update();           // the robot loop does this
+            Scheduler.getDefault().run();
+        }
+
+        Pose2d expected = Nodes.Robot.Start.LEFT;
+        assertEquals(expected.getX(), swerve.getPose().getX(), 0.01);
+        assertEquals(expected.getY(), swerve.getPose().getY(), 0.01);
+        TunableRegistry.update();
+        assertFalse(button.get(), "the button should reset itself after seeding");
     }
 }

@@ -10,6 +10,7 @@ package org.team1507.lib.core.framework;
 
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Trigger;
+import org.wpilib.driverstation.DriverStationErrors;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.opmode.OpMode;
 
@@ -41,15 +42,39 @@ import org.wpilib.opmode.OpMode;
  *   <li>When the robot <b>disables</b>, LoggedRobot cancels the command. When a
  *       different OpMode is selected, Commands v3 removes the trigger.</li>
  * </ul>
+ *
+ * <p>Warm-up: while the routine is selected and the robot is disabled, it is
+ * built once in advance. The first build loads a lot of code (about 34 ms on a
+ * laptop, more on SystemCore); doing it early means the robot doesn't sit still
+ * at the start of auto. It also reports a routine with mistakes on the Driver
+ * Station before the match, not at enable.
  */
 public abstract class AutoOpMode implements OpMode {
 
     /** Builds the command this routine runs. Called each time the robot is enabled. */
     protected abstract Command build();
 
+    private final String name = getClass().getSimpleName();
+    private boolean warmedUp = false;
+
     protected AutoOpMode() {
-        String name = getClass().getSimpleName();
         new Trigger(RobotState::isEnabled).onTrue(
             Command.noRequirements(coroutine -> coroutine.await(build())).named(name));
+    }
+
+    /** Runs every loop while this routine is selected and the robot is disabled. */
+    @Override
+    public void disabledPeriodic() {
+        if (!warmedUp) {
+            warmedUp = true;
+            try {
+                // Warm-up only: the auto builds again at enable. (Assigned because
+                // WPILib's compiler check rejects a command that is made and dropped.)
+                @SuppressWarnings("unused")
+                Command warmUp = build();
+            } catch (RuntimeException e) {
+                DriverStationErrors.reportError("Auto '" + name + "' can't run: " + e.getMessage(), false);
+            }
+        }
     }
 }

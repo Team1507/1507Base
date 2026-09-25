@@ -10,7 +10,6 @@ package org.team1507.robot.subsystems;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,11 +17,10 @@ import org.junit.jupiter.api.Test;
 
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
-import org.wpilib.hardware.hal.HAL;
-import org.wpilib.telemetry.DiscardTelemetryBackend;
-import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
+
+import org.team1507.robot.TestRobot;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SwerveCommandsTest
@@ -30,6 +28,8 @@ import org.wpilib.math.geometry.Rotation2d;
 // Builds the real Swerve subsystem on CTRE's simulated hardware and runs its
 // commands through the Commands v3 scheduler, checking they end where they
 // should. Protects the driving commands when Swerve.java is refactored.
+// (Auto routes, which replaced driveToPoint / moveThroughPose, are tested in
+// AutoSequenceTest.)
 //
 // Simulation here is simple (wheels reach their commanded speed instantly), so
 // these check the command LOGIC, not real-robot tuning.
@@ -44,10 +44,7 @@ class SwerveCommandsTest {
 
     @BeforeAll
     static void createSwerve() {
-        HAL.initialize();
-        // No robot program, so no telemetry destination: send logged values nowhere.
-        TelemetryRegistry.registerBackend("", new DiscardTelemetryBackend());
-        swerve = new Swerve();
+        swerve = TestRobot.get().swerve;   // the shared simulated robot's drivetrain
     }
 
     @BeforeEach
@@ -77,13 +74,6 @@ class SwerveCommandsTest {
     }
 
     @Test
-    void driveToPointReachesTheTarget() {
-        Pose2d target = new Pose2d(1.5, -0.8, Rotation2d.ZERO);
-        runUntilDone(swerve.driveToPoint(target, 2.0, true));
-        assertEquals(0.0, swerve.getPose().getTranslation().getDistance(target.getTranslation()), 0.06);
-    }
-
-    @Test
     void changeHeadingEndsFacingTheTarget() {
         runUntilDone(swerve.changeHeading(90));
         double headingDeg = swerve.getPose().getRotation().getDegrees();
@@ -95,13 +85,6 @@ class SwerveCommandsTest {
         // A target straight to the robot's left: it should turn to +90°.
         runUntilDone(swerve.pointToTarget(new Pose2d(0.0, 2.0, Rotation2d.ZERO)));
         assertEquals(90.0, swerve.getPose().getRotation().getDegrees(), 3.5);
-    }
-
-    @Test
-    void moveThroughPoseFinishesInsideThePassRadius() {
-        Pose2d waypoint = new Pose2d(2.0, 0.0, Rotation2d.ZERO);
-        runUntilDone(swerve.moveThroughPose(waypoint, 2.0, Math.PI, 0.3));
-        assertTrue(swerve.getPose().getTranslation().getDistance(waypoint.getTranslation()) < 0.4);
     }
 
     @Test

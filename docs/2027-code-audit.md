@@ -42,6 +42,7 @@ This audit checks the code against four goals:
 | **Step 3: `Subsystem1507`** (fixed H-1) | `motor(...)` creates and registers a motor; every loop the base class refreshes all its motors in one CAN call, runs `periodic()`, logs `<Subsystem>/TotalSupplyCurrent`, and steps the sim. Default CAN bus set once in `Robot.java`. `warnIf`/`faultIf` alerts clear themselves. Swerve's 8 motors count toward its current. `Subsystem1507Test` |
 | **Motion Magic** (fixed M-1) | `withMotionMagicDegrees` / `withMotionMagicMeters` / `withMotionMagicRotations`; the build fails if Motion Magic has no speed limits |
 | **Logging work** (fixed H-2, M-4) | Moved onto WPILib 2027 `Telemetry`. Every motor logs all 15 signals + target + stall every loop (motor supply voltage raised to 50 Hz, matching the currents); `RobotHealthLog` logs battery, brownout, loop period/time, CAN utilization per port, PDH channels, total motor current; `CommandLog` logs every command start/end (`Commands/Events`) and each subsystem's current command; each subsystem logs its `PeriodicMs`. Our `Telemetry`, `InputField` and `TelemetryRate` deleted. Also: the Pigeon's startup read no longer prints a CAN error. Telemetry and Logging wiki page rewritten; LOGGING-1..3 added to the checklist |
+| **2027 auto update** (fixed M-5) | Routes with `checkpoint` / `waypoint` / `endpoint` (the robot keeps driving through checkpoints while the next steps run), `Accuracy` presets, `.heading()` / `.facing()`, `.by()` cutoffs, left/right mirroring with seed buttons, `Driver.CLASSIC` / `Driver.POLICY`; route runner in `lib/core/auto`; `driveToPoint` / `moveThroughPose` / `withDebug` removed; `AutoBuilder` holds the whole `Robot` (no per-subsystem registration); build-time route checks; `AutoSequenceTest`, `AutoRoutinesTest` (every routine built on every build); warm-up build while disabled; CANivore bus logging. See `docs/2027-auto-plan.md` |
 | **Phase 2 swerve** | Acceleration limiting (slip, torque, angular) in `Swerve.drive()`, 340's approach and starting values, field-relative; `SwerveAccelLimiterTest`; checklist SWERVE-10. The odometry thread, current budget and cosine scaling were **dropped**: 340 runs none of them (their odometry thread is off, 50 Hz like ours), per-motor supply limits already cap current, and QuestNav will be the main position source |
 | **Comments (this audit)** | 13 stale or wrong comments fixed; see [Goal 4](#goal-4-comment-accuracy) |
 
@@ -82,8 +83,8 @@ Each `Motor1507` now reports 15 signals (position/velocity at 100 Hz, current/vo
 #### ~~M-4. `InputField` publishing creates garbage every loop~~ ✅ Fixed
 `InputField` is deleted. Everything logs through WPILib `Telemetry` with primitive values.
 
-#### M-5. Adding a subsystem to autos needs `AutoBuilder` registration
-A subsystem used in autos must be added to `AutoBuilder` (field + `init()` parameter + the `Robot.java` call). Forgetting causes a `NullPointerException` at enable. **On hold by choice**: autos will be revisited once the other systems are in place.
+#### ~~M-5. Adding a subsystem to autos needs `AutoBuilder` registration~~ ✅ Fixed
+`AutoBuilder` now holds the whole `Robot`; every subsystem is reachable as `AutoBuilder.robot.<name>` with nothing to register.
 
 #### M-6. Decisions needed
 - **CAN port layout** (was M4): which devices go on which SystemCore port.
@@ -111,11 +112,11 @@ What a student writes to add a mechanism today:
 | Commands | subsystem | `runRepeatedly(...)`/`run(...)` + `.named()` | ✅ Goal-based motor calls in degrees/RPM |
 | Default command | `Robot.java` | 1 line | |
 | Button bindings | `DriverTeleop` | 1 line each | ✅ Removed automatically with the OpMode |
-| Use in autos | `AutoBuilder` + `AutoSequence` | 3 places | ⚠️ M-5 (on hold) |
+| Use in autos | `AutoSequence` wrapper | 1 line per action | ✅ No registration (M-5 fixed) |
 
 **Strong points:** presets hide CTRE's config names; motor calls take the units students think in; the build catches bad configs, swerve pastes and field positions; the wiki examples compile against the real code.
 
-**Remaining friction:** M-5 (autos, on hold).
+**Remaining friction:** none known.
 
 ---
 
@@ -206,7 +207,7 @@ Comments added during this session (Motor1507, MotorConfig, SwerveConfig, Swerve
 2. ~~**Logging work**~~ ✅ Done (fixed H-2 and M-4; M-2 now measurable).
 3. **Robot time** (when the MK5n modules are built) — Season Setup Checklist SWERVE-3 to SWERVE-8, and LOGGING-1 to LOGGING-3.
 4. ~~**Phase 2 swerve library**~~ ✅ Done: acceleration limiting only; the other three items were dropped (see Completed). Phase 3 simulation (M-3) moved to 1507Labs.
-5. **Revisit autos** (M-5) and **restore QuestNav** once its 2027 build ships.
+5. ~~**Revisit autos**~~ ✅ Done (the 2027 auto update). **Restore QuestNav** once its 2027 build ships.
 
 ---
 

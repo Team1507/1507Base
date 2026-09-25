@@ -35,11 +35,10 @@ import org.team1507.lib.core.framework.Subsystem1507;
 // HOW AUTO USES THIS:
 //   In AutoSequence.java (add a one-line wrapper):
 //     public AutoSequence myBehavior() {
-//         steps.add(RobotBehaviors.myBehavior(...));
-//         return this;
+//         return add("myBehavior", place -> RobotBehaviors.myBehavior(...));
 //     }
 //   Then in a routine:
-//     new AutoSequence().myBehavior().driveToPoint(...).build();
+//     new AutoSequence().endpoint(Nodes.Robot.Score.RIGHT).myBehavior().build();
 //
 // HOW TO ADD A NEW BEHAVIOR (Commands v3):
 //   1. Identify which subsystems are involved.

@@ -8,41 +8,48 @@
 
 package org.team1507.robot.auto.routines;
 
-import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.command3.Command;
 import org.wpilib.opmode.Autonomous;
 
 import org.team1507.lib.core.framework.AutoOpMode;
+import org.team1507.robot.Constants.kAuto.Accuracy;
 import org.team1507.robot.auto.AutoSequence;
+import org.team1507.robot.auto.nodes.Nodes;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DriveForwardAuto
+// ExampleRouteAuto
 //
-// The simplest possible auto routine — resets the pose and drives forward.
-// Use this as a reference for how all routine files should look.
+// A route auto: drive out to midfield and back, then face the hub. Shows every
+// kind of path step. Each season, copy it and replace the nodes and actions.
 //
-// To create a new routine:
-//   1. Copy this file into the routines/ folder.
-//   2. Rename the class, change the @Autonomous name, and edit build()'s steps.
-//   That's it — the Driver Station lists every @Autonomous class automatically.
+// Written for the RIGHT side. Started on the left side (QuestNav, or the Seed
+// Left dashboard button), the same routine runs mirrored. Red flips on top.
+//
+// The commented-out lines show where mechanism actions go: after a checkpoint
+// they happen WHILE the robot keeps driving; after an endpoint the robot is
+// stopped. Add wrappers for them in AutoSequence's ROBOT ACTIONS section.
 // ─────────────────────────────────────────────────────────────────────────────
-@Autonomous(name = "Drive Forward")
-public final class DriveForwardAuto extends AutoOpMode {
+@Autonomous(name = "Example Route")
+public final class ExampleRouteAuto extends AutoOpMode {
 
-    /**
-     * Builds the DriveForward autonomous routine.
-     *
-     * Steps:
-     *   1. Reset pose to field origin (0, 0, 0°).
-     *   2. Drive 5 m forward at full speed, slowing down on the way in.
-     *   3. Stop.
-     */
     @Override
     protected Command build() {
-        return new AutoSequence()
-            .resetPose(new Pose2d())
-            .driveForwardMeters(5.0, true)
-            .stop()
+        return new AutoSequence()                                   // classic driver
+            .maxSpeed(0.8)                                          // whole auto at 80% speed
+            .resetPose(Nodes.Robot.Start.RIGHT)
+
+            // Out to midfield. The robot drives through the checkpoint without
+            // stopping; the step after it happens on the move.
+            .checkpoint(Nodes.Robot.Waypoint.MIDFIELD_RIGHT, Accuracy.TIGHT)
+            // .intakeDeploy()                                      // happens while driving on
+
+            // Back to score: a waypoint shapes the route (nothing waits for it),
+            // then stop at the scoring pose facing the hub.
+            .waypoint(Nodes.Robot.Start.RIGHT)
+            // .intakeRetract()                                     // (would run here, still driving)
+            .slow().endpoint(Nodes.Robot.Score.RIGHT).facing(Nodes.FieldElements.Hub.CENTER)
+            // .shootUntil(14.5)                                    // happens while stopped
+
             .build();
     }
 }

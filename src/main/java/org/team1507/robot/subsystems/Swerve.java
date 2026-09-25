@@ -16,7 +16,6 @@ import java.util.function.Supplier;
 import org.wpilib.command3.Command;
 import org.wpilib.driverstation.DriverStationErrors;
 import org.wpilib.framework.RobotBase;
-import org.wpilib.math.controller.PIDController;
 import org.wpilib.math.estimator.SwerveDrivePoseEstimator;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
@@ -38,6 +37,7 @@ import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.Pigeon2;
 
+import org.team1507.lib.core.auto.RouteDrivetrain;
 import org.team1507.lib.core.framework.Subsystem1507;
 import org.team1507.lib.core.swerve.SwerveAccelLimiter;
 import org.team1507.lib.core.swerve.SwerveModule1507;
@@ -56,7 +56,7 @@ import static org.team1507.robot.Constants.kSwerve.kTuning.*;
 // This robot's drivetrain HARDWARE (CAN IDs, offsets, gear ratios, gains, the
 // Tuner X paste zone) lives in SwerveConfig.java.
 // ─────────────────────────────────────────────────────────────────────────────
-public final class Swerve extends Subsystem1507 {
+public final class Swerve extends Subsystem1507 implements RouteDrivetrain {
 
     // ------------------------------------------------------------
     // Modules
@@ -87,6 +87,9 @@ public final class Swerve extends Subsystem1507 {
     // ------------------------------------------------------------
 
     private Pose2d pose = new Pose2d();
+
+    /** True once something told the robot where it is (resetPose, seed buttons, vision). */
+    private boolean poseSet = false;
 
     private final SwerveModuleVelocity[] moduleStates = new SwerveModuleVelocity[4];
     private final SwerveModulePosition[] modulePositions = new SwerveModulePosition[4];
@@ -267,7 +270,17 @@ public final class Swerve extends Subsystem1507 {
         backRight.setDesiredState(states[3]);
     }
 
+    /**
+     * Drives with FIELD-relative velocities (x toward the Red wall, y toward the
+     * Blue driver's left). Used by auto routes; converts and calls drive().
+     */
+    @Override
+    public void driveFieldRelative(ChassisVelocities fieldVelocities) {
+        drive(fieldVelocities.toRobotRelative(getPose().getRotation()));
+    }
+
     /** Stops all modules immediately (not acceleration-limited). */
+    @Override
     public void stop() {
         accelLimiter.reset();
         lastCommandedSpeeds = new ChassisVelocities();
@@ -301,6 +314,7 @@ public final class Swerve extends Subsystem1507 {
     // ============================================================
 
     /** Returns the robot's current estimated field pose (Blue-origin field coordinates). */
+    @Override
     public Pose2d getPose() {
         return pose;
     }
@@ -351,6 +365,7 @@ public final class Swerve extends Subsystem1507 {
      * Returns the robot's velocity in field-relative coordinates.
      * Used by maintainHeadingToTarget for motion compensation.
      */
+    @Override
     public ChassisVelocities getFieldRelativeSpeeds() {
         return kinematics.toChassisVelocities(getModuleStates())
             .toFieldRelative(getPose().getRotation());
@@ -362,8 +377,18 @@ public final class Swerve extends Subsystem1507 {
     }
 
     /** Returns the configured maximum angular rate in rad/s. */
+    @Override
     public double getMaxAngular() {
         return SwerveConfig.MAX_ANGULAR_RATE;
+    }
+
+    /**
+     * True once something told the robot where it is on the field: resetPose
+     * (an auto's start, the dashboard seed buttons) or vision. Autos use it to
+     * decide which side of the field they are on; before that, they run as written.
+     */
+    public boolean hasPoseBeenSet() {
+        return poseSet;
     }
 
     // ============================================================
@@ -387,6 +412,7 @@ public final class Swerve extends Subsystem1507 {
             timestampSeconds,
             stdDevs
         );
+        poseSet = true;
     }
 
     /**
@@ -403,7 +429,9 @@ public final class Swerve extends Subsystem1507 {
      * for when vision isn't available.
      */
     public void zeroHeading() {
-        resetPose(new Pose2d(getPose().getTranslation(), driverForward()));
+        // Only the heading is known here, not the position, so this doesn't
+        // count as "pose set" (see hasPoseBeenSet).
+        setPoseEstimate(new Pose2d(getPose().getTranslation(), driverForward()));
     }
 
     /**
@@ -413,6 +441,11 @@ public final class Swerve extends Subsystem1507 {
      * @param pose the new known pose
      */
     public void resetPose(Pose2d pose) {
+        setPoseEstimate(pose);
+        poseSet = true;
+    }
+
+    private void setPoseEstimate(Pose2d pose) {
         this.pose = pose;
         poseEstimator.resetPosition(
             getGyroHeading(),
@@ -518,7 +551,8 @@ public final class Swerve extends Subsystem1507 {
     // ║  SECTIONS:                                                       ║
     // ║    1. Basic Drive (teleop)                                       ║
     // ║    2. Heading Control (pointing, aiming)                         ║
-    // ║    3. Autonomous Movement (driveToPoint, moveThroughPose, etc.)  ║
+    // ║    3. Autonomous Movement (driveForwardMeters; routes: see       ║
+    // ║       lib/core/auto/RouteRunner, used by AutoSequence)           ║
     // ║    4. Utility (brake)                                            ║
     // ╚══════════════════════════════════════════════════════════════════╝
 
@@ -660,7 +694,7 @@ public final class Swerve extends Subsystem1507 {
      *
      * Differs from pointToTarget: this snaps to a specific angle,
      * not a direction toward a field location. Useful for correcting heading
-     * drift after moveThroughPose, or for aligning with a wall.
+     * drift, or for aligning with a wall.
      *
      * Finishes within HEADING_TOLERANCE_DEG.
      *
@@ -741,108 +775,16 @@ public final class Swerve extends Subsystem1507 {
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Drives toward a target pose and finishes within ARRIVE_THRESHOLD (5 cm)
-     * of the target XY. Slows down near the target (APF deceleration ramp).
-     *
-     * Rotation toward the target pose's heading is corrected proportionally
-     * throughout the move.
-     *
-     * Stall detection: if the robot moves less than STALL_THRESHOLD for
-     * STALL_TIMEOUT seconds (e.g. pushed against a wall), the command gives up
-     * so the auto can continue.
-     *
-     * @param targetPose  the field pose to drive to
-     * @param velocity    cruise translation speed (m/s)
-     * @param stopAtEnd   true = stop when done; false = leave velocity applied (for chaining)
-     */
-    public Command driveToPoint(Pose2d targetPose, double velocity, boolean stopAtEnd) {
-        return driveToTarget(start -> targetPose, velocity, stopAtEnd, "Swerve.driveToPoint");
-    }
-
-    /**
-     * Drives through a waypoint at constant speed without slowing down.
-     *
-     * Unlike driveToPoint, the command finishes as soon as the robot enters the
-     * pass radius — there is no deceleration. This allows smooth, high-speed
-     * paths through multiple chained waypoints.
-     *
-     * Rotation is controlled by a PID toward the target pose's heading.
-     * Tune THETA_KP / KI / KD and MOVE_THROUGH_DEFAULT_RADIUS in Constants.kSwerve.kTuning.
-     *
-     * Gives up (so the auto can continue) if the robot stalls for STALL_TIMEOUT
-     * seconds, or runs longer than MAX_MOVETHROUGH_SECONDS in total.
-     *
-     * @param targetPose  the waypoint pose to pass through
-     * @param maxSpeed    translation speed (m/s)
-     * @param maxAngular  maximum rotation speed (rad/s), clamps PID output
-     * @param passRadius  distance to consider the waypoint "passed" (meters)
-     */
-    public Command moveThroughPose(
-        Pose2d targetPose,
-        double maxSpeed,
-        double maxAngular,
-        double passRadius
-    ) {
-        return run(coroutine -> {
-            PIDController thetaPID = new PIDController(THETA_KP, THETA_KI, THETA_KD);
-            thetaPID.enableContinuousInput(-Math.PI, Math.PI);
-
-            double startTime = Timer.getTimestamp();
-            ProgressWatchdog watchdog = new ProgressWatchdog(getPose().getTranslation());
-
-            while (true) {
-                Pose2d current = getPose();
-
-                // Done: entered the pass radius, stalled, or hit the hard time limit
-                // (the time limit catches oscillation that keeps resetting the watchdog)
-                if (current.getTranslation().getDistance(targetPose.getTranslation()) < passRadius
-                        || watchdog.isStalled(current.getTranslation())
-                        || Timer.getTimestamp() - startTime > MAX_MOVETHROUGH_SECONDS) {
-                    break;
-                }
-
-                // Normalized direction toward the waypoint, at constant speed
-                double dx       = targetPose.getX() - current.getX();
-                double dy       = targetPose.getY() - current.getY();
-                double distance = Math.hypot(dx, dy);
-
-                // PID rotation toward target heading, clamped to maxAngular
-                double omega = Math.clamp(
-                    thetaPID.calculate(
-                        current.getRotation().getRadians(),
-                        targetPose.getRotation().getRadians()
-                    ),
-                    -maxAngular, maxAngular
-                );
-
-                drive(new ChassisVelocities(
-                    dx / distance * maxSpeed, dy / distance * maxSpeed, omega
-                ).toRobotRelative(current.getRotation()));
-
-                coroutine.yield();
-            }
-            stop();
-        })
-        .whenCanceled(this::stop)
-        .named("Swerve.moveThroughPose");
-    }
-
-    /**
-     * Convenience overload of moveThroughPose using the default pass radius.
-     * Use this when you don't need to tune the radius per waypoint.
-     */
-    public Command moveThroughPose(Pose2d targetPose, double maxSpeed, double maxAngular) {
-        return moveThroughPose(targetPose, maxSpeed, maxAngular, MOVE_THROUGH_DEFAULT_RADIUS);
-    }
-
-    /**
      * Drives forward a fixed distance along the robot's current heading.
      *
      * The target is computed from the robot's position and heading at the moment
      * the command starts. Heading is held with proportional correction throughout.
      * Finishes within ARRIVE_THRESHOLD (5 cm).
      *
-     * Use case: fallback auto when vision is offline — just drive a known distance.
+     * Use case: creeping into a wall or station by a known amount (the 2026
+     * human player auto), or a fallback auto when vision is offline.
+     *
+     * Gives up if the robot stops making progress (see ProgressWatchdog).
      *
      * @param distanceMeters  distance to drive (meters, positive = forward)
      * @param velocity        cruise translation speed (m/s)
@@ -867,13 +809,15 @@ public final class Swerve extends Subsystem1507 {
 
     /**
      * Turns in place until the robot faces {@code desiredHeading} (re-read
-     * every loop), within HEADING_TOLERANCE_DEG, then stops.
+     * every loop), within HEADING_TOLERANCE_DEG, then stops. Gives up after
+     * MAX_TURN_SECONDS (robot pinned, wheels slipping), so an auto can't stall here.
      * Used by pointToTarget and changeHeading.
      */
     private Command turnToFace(Supplier<Rotation2d> desiredHeading, String name) {
         return run(coroutine -> {
+            double start = Timer.getTimestamp();
             Rotation2d desired = desiredHeading.get();
-            while (!isFacing(desired)) {
+            while (!isFacing(desired) && Timer.getTimestamp() - start < MAX_TURN_SECONDS) {
                 drive(new ChassisVelocities(0.0, 0.0, computeOmega(getPose().getRotation(), desired)));
                 coroutine.yield();
                 desired = desiredHeading.get();
@@ -885,11 +829,11 @@ public final class Swerve extends Subsystem1507 {
     }
 
     /**
-     * Drives to a target pose, slowing down as it gets close (APF deceleration
-     * ramp) while turning toward the target's heading. Finishes within
-     * ARRIVE_THRESHOLD, or gives up if the robot stops making progress (see
-     * {@link ProgressWatchdog}) so an auto can continue.
-     * Used by driveToPoint and driveForwardMeters.
+     * Drives to a target pose, slowing down as it gets close
+     * (speed = ARRIVE_KP × distance) while turning toward the target's heading.
+     * Finishes within ARRIVE_THRESHOLD, or gives up if the robot stops making
+     * progress (see {@link ProgressWatchdog}) so an auto can continue.
+     * Used by driveForwardMeters.
      *
      * @param targetFromStart works out the target from the robot's pose when the
      *                        command STARTS (driveForwardMeters needs this)

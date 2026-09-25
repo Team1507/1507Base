@@ -68,8 +68,8 @@ public final class Nodes {
         public static final class Pickup {
             public static final Pose2d APPROACH_RIGHT = Node.at(0.9, 0.70, 180.0);
             public static final Pose2d STATION_RIGHT  = Node.at(0.5, 0.70, 180.0);
-            public static final Pose2d APPROACH_LEFT  = Node.at(0.9, 7.12, 180.0);
-            public static final Pose2d STATION_LEFT   = Node.at(0.5, 8.12, 180.0);
+            public static final Pose2d APPROACH_LEFT  = Node.at(0.9, 7.37, 180.0);
+            public static final Pose2d STATION_LEFT   = Node.at(0.5, 7.37, 180.0);   // mirror of the right side (WIDTH - 0.70)
         }
 
         // Waypoints — intermediate navigation poses used when routing across
@@ -95,9 +95,13 @@ public final class Nodes {
     // ─────────────────────────────────────────────────────────────────────
     public static final class Field {
 
-        // Competition field — 2025/2026 standard dimensions
-        public static final double LENGTH = 16.54; // meters
-        public static final double WIDTH  =  8.21; // meters
+        // Competition field, 2026 (welded field). Source: WPILib's official
+        // 2026-rebuilt-welded.json AprilTag layout (the AndyMark field is ~2 cm
+        // smaller). Red flipping and left/right mirroring both use these, so a
+        // wrong WIDTH puts every flipped or mirrored node off in Y.
+        // TODO(SEASON): update from the new game's official AprilTag layout.
+        public static final double LENGTH = 16.541; // meters
+        public static final double WIDTH  =  8.069; // meters
 
         // Practice field room — update these to match your actual space
         public static final double PRACTICE_LENGTH = 8.27; // TODO: measure your field room
@@ -132,12 +136,18 @@ public final class Nodes {
 
         public static final class Hub {
             // 47 in × 47 in box, centered on field Y, near edge at the Blue Alliance Zone.
-            // Source: Team 340 field measurements — HUB_WIDTH = 47 in = 1.194 m,
-            //         BLUE_ZONE = AprilTag 26 X ≈ 3.048 m, Y_CENTER = 8.21 / 2 = 4.105 m.
-            public static final Translation2d CORNER_NEAR_LEFT  = Node.location(3.048, 4.702);
-            public static final Translation2d CORNER_FAR_LEFT   = Node.location(4.242, 4.702);
-            public static final Translation2d CORNER_FAR_RIGHT  = Node.location(4.242, 3.508);
-            public static final Translation2d CORNER_NEAR_RIGHT = Node.location(3.048, 3.508);
+            // Source: the official 2026-rebuilt-welded.json AprilTag layout, the same
+            // way Team 340 computes it: near edge = AprilTag 26 X (4.022 m),
+            // center Y = tag 26 Y (4.035 m), 47 in = 1.194 m wide.
+            // (Until 2026-09-25 this used 3.048 m / 4.105 m, about 1 m short, so
+            // .facing(Hub.CENTER) aimed at the wrong spot.)
+            public static final Translation2d CORNER_NEAR_LEFT  = Node.location(4.022, 4.632);
+            public static final Translation2d CORNER_FAR_LEFT   = Node.location(5.216, 4.632);
+            public static final Translation2d CORNER_FAR_RIGHT  = Node.location(5.216, 3.438);
+            public static final Translation2d CORNER_NEAR_RIGHT = Node.location(4.022, 3.438);
+
+            /** The hub's center: aim here, e.g. .endpoint(SHOOT_SPOT).facing(Hub.CENTER). */
+            public static final Translation2d CENTER = Node.location(4.619, 4.035);
 
             // Ordered clockwise from top-left. NodeBoundsTest walks these edges
             // to check if any robot node's spin circle intersects the structure.

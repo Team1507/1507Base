@@ -8,6 +8,8 @@
 
 package org.team1507.lib.core.logging;
 
+import com.ctre.phoenix6.CANBus;
+
 import org.wpilib.hardware.bus.CANPort;
 import org.wpilib.hardware.hal.can.CANStatus;
 import org.wpilib.hardware.power.PowerDistribution;
@@ -29,6 +31,8 @@ import org.team1507.lib.core.framework.Subsystem1507;
  *   <tr><td>LoopPeriodMs — time since the last loop started (20 = on time; more = overrun)</td><td>every loop</td></tr>
  *   <tr><td>RobotPeriodicMs — time spent in the scheduler (subsystems + commands)</td><td>every loop</td></tr>
  *   <tr><td>CAN/CAN_S0..S4/Utilization (0 to 1; 1 = full), BusOff, TxFull, ReceiveErrors, TransmitErrors</td><td>10 Hz</td></tr>
+ *   <tr><td>CAN/&lt;CANivore name&gt;/... — the same, when the robot's default CAN bus
+ *       (Subsystem1507.setDefaultCanBus) is a CANivore</td><td>10 Hz</td></tr>
  *   <tr><td>CPUTempC, CommsDisableCount</td><td>1 Hz</td></tr>
  * </table>
  * And under {@code PDH/} (only if Robot.java calls {@code logPowerDistribution}):
@@ -51,6 +55,11 @@ public final class RobotHealthLog {
     private final TelemetryTable[] canTables = new TelemetryTable[CAN_PORTS.length];
 
     private PowerDistribution pdh = null;
+
+    /** The default CAN bus if it is a CANivore, found on the first CAN log; null otherwise. */
+    private CANBus canivore = null;
+    private TelemetryTable canivoreTable = null;
+    private boolean canivoreChecked = false;
 
     private long lastLoopStartNanos = 0;
     private int loopCount = 0;
@@ -109,6 +118,7 @@ public final class RobotHealthLog {
     }
 
     private void logCan() {
+        logCanivore();
         for (int i = 0; i < CAN_PORTS.length; i++) {
             CANStatus status = RobotController.getCANStatus(CAN_PORTS[i]);
             TelemetryTable t = canTables[i];
@@ -118,5 +128,33 @@ public final class RobotHealthLog {
             t.log("ReceiveErrors", status.receiveErrorCount);
             t.log("TransmitErrors", status.transmitErrorCount);
         }
+    }
+
+    /**
+     * SystemCore's own ports are logged above. A CANivore (a USB CAN adapter,
+     * e.g. the 2026 robot's "CAN-EATER") is only visible to CTRE's library, so
+     * it is logged here. SystemCore port buses are named "can_s0".."can_s4".
+     */
+    private void logCanivore() {
+        if (!canivoreChecked) {
+            canivoreChecked = true;
+            CANBus bus = Subsystem1507.getDefaultCanBus();
+            if (bus != null && !bus.getName().toLowerCase().startsWith("can_s")) {
+                canivore = bus;
+                canivoreTable = Telemetry.getTable("Robot/CAN/" + bus.getName());
+            }
+        }
+        if (canivore == null) {
+            return;
+        }
+        CANBus.CANBusStatus status = canivore.getStatus();
+        if (!status.Status.isOK()) {
+            return;
+        }
+        canivoreTable.log("Utilization", status.BusUtilization);
+        canivoreTable.log("BusOff", status.BusOffCount);
+        canivoreTable.log("TxFull", status.TxFullCount);
+        canivoreTable.log("ReceiveErrors", status.REC);
+        canivoreTable.log("TransmitErrors", status.TEC);
     }
 }

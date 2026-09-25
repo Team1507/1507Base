@@ -79,4 +79,33 @@ public final class FieldFlip {
     public static Rotation2d rotation(Rotation2d blue) {
         return blue.rotateBy(Rotation2d.fromDegrees(180.0));
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Left/right mirroring
+    //
+    // Routines are written for the RIGHT side of the field (as seen from the
+    // driver station: low Y on Blue). An auto started on the LEFT side runs the
+    // same routine through these, which mirror across the field's long
+    // centerline (Y = WIDTH / 2): Y flips, and headings flip left↔right.
+    //
+    // Mirroring is applied BEFORE the Red flip; AutoSequence does both.
+    //
+    // CHECK EACH SEASON: this assumes the field's left and right halves are
+    // mirror images (true for 2026: the hub is centered). Change these if not.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Mirrors a Blue-origin pose from the right side of the field to the left (or back). */
+    public static Pose2d mirror(Pose2d pose) {
+        return new Pose2d(mirror(pose.getTranslation()), mirror(pose.getRotation()));
+    }
+
+    /** Mirrors a Blue-origin position across the field's long centerline. */
+    public static Translation2d mirror(Translation2d position) {
+        return new Translation2d(position.getX(), Nodes.Field.WIDTH - position.getY());
+    }
+
+    /** Mirrors a heading left↔right (e.g. 30° becomes -30°). */
+    public static Rotation2d mirror(Rotation2d heading) {
+        return heading.unaryMinus();
+    }
 }

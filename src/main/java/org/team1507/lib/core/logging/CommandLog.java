@@ -36,7 +36,7 @@ import org.wpilib.telemetry.TelemetryTable;
  *       In AdvantageScope, put it on a timeline next to battery voltage.</li>
  *   <li>{@code <Subsystem>/Command}: the command using each subsystem right
  *       now ("" when none). When commands are nested (an auto that runs
- *       {@code Swerve.driveTo}), it shows the innermost one; when that ends it
+ *       {@code Swerve.driveForwardMeters}), it shows the innermost one; when that ends it
  *       goes back to the outer one.</li>
  * </ul>
  *

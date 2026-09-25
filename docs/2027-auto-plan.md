@@ -1,6 +1,8 @@
 # 2027 Autonomous Plan
 
-**Status:** planning. Nothing here is implemented yet.
+**Status:** build steps 0–5 implemented (uncommitted until verified on the 2026 robot, see below). Step 6 (the policy driver) is still to do, in 1507Labs.
+
+**Workflow agreed 2026-09-25:** (1) make the auto changes, (2) port the 2026 code into 1507Base, (3) verify the autos on last year's robot, (4) discard the ported 2026 code, (5) commit and push once.
 **Branch:** `SystemCore` (WPILib 2027, Commands v3)
 
 This plan redesigns how auto routines are written, so that:

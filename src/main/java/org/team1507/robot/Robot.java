@@ -13,6 +13,7 @@ import org.wpilib.command3.button.CommandGamepad;
 import org.team1507.lib.core.framework.LoggedRobot;
 import org.team1507.lib.core.framework.Subsystem1507;
 import org.team1507.robot.auto.AutoBuilder;
+import org.team1507.robot.auto.PoseSeeds;
 import org.team1507.robot.Constants.RobotMap;
 import org.team1507.robot.subsystems.*;
 
@@ -74,10 +75,15 @@ public final class Robot extends LoggedRobot {
         // OpModes can override these (DriverTeleop sets joystick driving).
         swerve.setDefaultCommand(swerve.idle());
 
-        // Give auto routines access to the subsystems
-        AutoBuilder.init(swerve);
-
         // Controllers (button bindings are made in the OpModes, e.g. DriverTeleop)
         driver = new CommandGamepad(RobotMap.DRIVER_CONTROLLER);
+
+        // Dashboard buttons that tell the robot where it was placed (Seed Left /
+        // Center / Right), so autos know which side they start on without QuestNav.
+        PoseSeeds.bind(swerve);
+
+        // Give auto routines access to the robot and all its subsystems. Last, so
+        // everything above exists.
+        AutoBuilder.init(this);
     }
 }

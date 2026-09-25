@@ -123,6 +123,11 @@ public abstract class Subsystem1507 implements Mechanism {
         defaultCanBus = bus;
     }
 
+    /** The CAN bus set by {@link #setDefaultCanBus}, or null if none. */
+    public static CANBus getDefaultCanBus() {
+        return defaultCanBus;
+    }
+
     @Override
     public String getName() {
         return name;
