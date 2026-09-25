@@ -233,7 +233,7 @@ Built from today's proven code:
 
 ### Policy driver
 
-- Runs the trained network **on SystemCore, in Java**. The network is small (8 inputs → 256 → 256 → 2 outputs, about 70,000 multiply-adds per loop, well under 1 ms). No extra libraries.
+- Runs the trained network **on SystemCore, in Java**. The network is small (8 inputs → 256 → 256 → 3 outputs; the third, rotation, is unused), 68,352 multiply-adds per loop, well under 1 ms. No extra libraries.
 - Weights are exported from Stable-Baselines3 to a file in the robot's deploy folder.
 - Each loop it builds the same 8 inputs the training used (velocity, position, vectors to the current and next node), runs the network, and drives with the output. Our heading controller adds the turning.
 - **Endpoints:** the policy gets the robot close, then the classic endpoint logic finishes the last stretch precisely, until the policy is trained for tight endpoints.
@@ -280,12 +280,69 @@ None right now. Answered so far:
 
 ---
 
-## 9. Build order
+## 9. Feasibility review (2026-09-25)
 
+Checked against WPILib 2027 alpha 7, Commands v3, 1507Base (`SystemCore` branch), Rebuilt2026 / Rebuilt2026_V2 and Swerve-Policy-Playground, with throwaway tests where behavior mattered.
+
+### Verified to work
+
+| Plan item | How it was checked | Result |
+|---|---|---|
+| Route drives in the background while other steps run | v3 test: auto forks a "route" (swerve), then runs intake steps | ✅ route kept driving during the intake steps |
+| Checkpoint "wait until reached" | Same test | ✅ |
+| Keep-running wrappers (rollers), stopped by a later step for the same subsystem | Same test | ✅ the later intake step interrupted the rollers |
+| Keep-running actions stop when the auto ends | Same test | ✅ |
+| Disable cancels the route and all background actions | Same test (root canceled) | ✅ |
+| Swerve's `idle()` resumes between route segments | Same test | ✅ |
+| Next step starts in the same loop the previous one ends | v3 test | ✅ no stutter between steps |
+| Autos can receive the `Robot` (no per-subsystem `AutoBuilder` registration) | `OpModeRobot` source: tries a Robot constructor, then no-argument | ✅ |
+| Every auto built and route-checked in a unit test | Test constructed `Robot` (about 7 s, once) and built `DriveForwardAuto` | ✅ |
+| Policy runs in plain Java math | Python: 2 layers + ReLU + output + tanh vs Stable-Baselines3 `predict`, 1,000 random inputs | ✅ max difference 0.000001 |
+| Default heading behavior matches 2026 | 2026 `driveTo` and `moveThrough` both turned toward the node heading | ✅ ported autos behave the same by default |
+| 2026 robot's CANivore ("CAN-EATER") on SystemCore | WPILib SystemCore testing notes for Phoenix 6 | ✅ supported (needs the CANivore USB package on SystemCore) |
+
+### Required implementation details (found by the tests)
+
+1. **The route must be started by the auto's top-level command.** In v3, a background (forked) command runs only as long as the command that started it. If a checkpoint step started the route and then finished, the route would be killed. So `AutoSequence.build()` produces one top-level command that starts routes and keep-running actions itself, instead of `Command.sequence(...)`. Wrappers **register** keep-running actions with it rather than starting them.
+2. **No swerve steps between a checkpoint and its endpoint.** A step that uses swerve (`resetPose`, `stop`, a turn) while the route drives **cancels the route** (verified). `build()` must reject this with a clear message. The heading options (`.heading()`, `.facing()`) replace the 2026 pattern of driving and then turning.
+3. **The auto waits for the route at the end.** If the step list ends while a route is still driving, the route is canceled (verified). `build()` adds an automatic "wait for the route to finish" at the end.
+4. **A canceled or stuck route releases every waiting checkpoint** and logs why, so the auto continues instead of hanging.
+5. **Warm-up:** the first build of an auto took 34 ms, later builds 0.8 ms (Java loading classes). Building only at enable would freeze the robot for that long at the start of auto (longer on SystemCore). Build once when the auto is **selected** as a warm-up, then again at enable.
+
+### Gaps in the plan (to add)
+
+| Gap | Where it showed up | Proposed |
+|---|---|---|
+| **Time cutoffs on driving** | V2's `moveThroughBy(node, 0.2, 1.6)` / `driveToBy(node, 5.9)` | `.checkpoint(node).by(1.6)`: if not reached by 1.6 s of auto time, count it as reached and move on (logged) |
+| **Side without QuestNav** | Mirroring needs to know the side; 1507Base has no seed buttons (they were in the 2026 dashboard) | Add Seed Left / Center / Right dashboard buttons that set the pose |
+| **`.facing(Hub.CENTER)` needs field locations** | `Nodes.FieldElements.Hub` has corners but no `CENTER` | Add `CENTER` (and similar) locations |
+| **Start driving from a stop while doing something** | Not needed by any 2026 auto (every `parallel` followed a moving step) | Optional later: a `.depart()` step ("start driving now; the next steps happen on the way") |
+| **CANivore not in the health log** | `RobotHealthLog` logs SystemCore's ports only; the 2026 swerve is on a CANivore | Log the CANivore's bus utilization too |
+
+### What running 2026 autos on the 2026 robot needs (outside this plan)
+
+The auto framework is only part of it. To put SystemCore on last year's robot and run its autos:
+
+| Needed | Size | Notes |
+|---|---|---|
+| **Port the 6 mechanisms** from Rebuilt2026_V2 (Agitator, Feeder, Hopper, IntakeArm, IntakeRoller, Shooter) | About 1,500 lines | 2027 package names, Commands v3, the new `Motor1507` goal methods (degrees/RPM), `MotorConfig` presets, `motor(...)`. V2 already uses `Subsystem1507`, so the structure carries over |
+| **Port the 2026 nodes** (Start, Midfield, Outpost, Hub) | Data only | From Rebuilt2026's `Nodes` |
+| **Rewrite the auto wrappers** (`intakeDeploy`, `intakeHigh`, `shootUntil`, `pointToShoot`, ...) | Small | `intakeHigh()` / `intakeLow()` were "set speed and finish"; with `idle()` default commands they become keep-running wrappers |
+| **Port the 2026 shooter logic** (model-based shooting, `pointToShoot`) | Medium | Season code |
+| **Swerve for the 2026 modules** | Paste | Tuner X paste zone: drive 6.12, steer 21.43, coupling 3.57, wheel 1.952 in, Pigeon ID 30, bus "CAN-EATER" (`Constants.CAN_BUS`) |
+| **QuestNav** | Waiting | Parked until its 2027 build. Until then position comes from `resetPose` and odometry, as in 2026 |
+
+This belongs in a **2026-robot test project** (a copy of 1507Base), not in 1507Base itself.
+
+---
+
+## 10. Build order
+
+0. **Plan fixes above:** time cutoffs (`.by`), seed buttons, `Hub.CENTER`, CANivore logging.
 1. **Endpoint heading** in the classic logic: finish on XY by default; with `.heading()` / `.facing()`, finish on position AND heading. Small, and it fixes the 2026 problem on its own.
-2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with `Accuracy` presets in Constants), `waypoint`, `endpoint`, `heading` / `facing` (endpoints first, checkpoint overrides later), `maxSpeed`; the background route runner with the classic driver; background start for keep-running wrappers; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
+2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with `Accuracy` presets in Constants), `waypoint`, `endpoint`, `heading` / `facing` (endpoints first, checkpoint overrides later), `maxSpeed`; the top-level auto command that starts routes and keep-running actions (section 9); the no-swerve-steps-inside-a-route check; the automatic wait for the route at the end; the selection-time warm-up build; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
 3. **Mirroring:** side detection at enable, `.side()`, `.noMirror()`, the season mirror line.
-4. **Build checks** (section 6) and tests for each step type, mirroring and Red flipping.
+4. **Build checks** (section 6), run by a test that constructs `Robot` and builds every auto; tests for each step type, mirroring and Red flipping.
 5. **Port one 2026 auto of each kind** as the examples and the template. Update the Autonomous wiki page.
 6. **1507Labs:** the policy driver (weights loader, Java network, parity test), then promote to 1507Base once it has driven a real robot.
 
