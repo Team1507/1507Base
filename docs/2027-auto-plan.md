@@ -44,9 +44,9 @@ Lessons:
 | Mirroring | Yes: normally 1–3 routines, mirrored to the side the robot starts on. Side-specific routines are still allowed |
 | Speed modifiers with the policy | Kelly will add speed to the policy's training once this structure is final |
 | Heading in the policy | Kelly will add a heading observation to training later. Until then our code turns the robot while the policy drives |
-| Endpoint heading | **XY only by default** (turning costs time). `.facing(...)` adds a heading requirement |
+| Heading | The robot always turns toward the **node's heading** while driving. An endpoint finishes on **XY only** unless `.heading()` or `.facing(...)` is added, which also make it wait for the heading |
 | Checkpoint pass radius | Per step, as in 2026 (`.checkpoint(node, 0.2)`), with a default when left out |
-| `.facing()` on checkpoints | Supported (e.g. crossing the 2026 bump at 45° so the robot doesn't get stuck), but low priority |
+| Heading on checkpoints | Comes from the node (store the 2026 bump node at 45° and the robot crosses at 45°). `.heading(deg)` / `.facing(...)` only override it; a checkpoint never waits for heading |
 | Unknown side / position at enable | **Never stop the auto.** `resetPose` gets the pose close; QuestNav corrects it when it's tracking. The only give-up stays the existing stall detection |
 
 ---
@@ -59,25 +59,32 @@ Lessons:
 |---|---|---|---|
 | `.checkpoint(node)` | Drive **through** this node | Waits until the robot reaches it | **Keeps moving** |
 | `.waypoint(node)` | A shaping point: keeps the route where you want it | No; it's not a step, only part of the route | Keeps moving |
-| `.endpoint(node)` | Drive to this node and **stop** (position only, unless `.facing(...)` is added) | Waits until the robot has stopped there | Stops |
+| `.endpoint(node)` | Drive to this node and **stop**. Finishes on position, unless `.heading()` / `.facing(...)` is added | Waits until the robot has stopped there | Stops |
 
 **The one rule to teach:** after a checkpoint, the robot keeps driving toward the next endpoint while the steps after the checkpoint run. To stop and then do something, use an endpoint.
 
 How it works: when the sequence reaches a path step, the robot starts driving the whole route up to the next endpoint **in the background**. Path steps then only wait for "reached". Every other step (`intakeDeploy()`, `shoot()`) runs while the robot drives. If an action takes long enough that the robot passes the next checkpoint first, that checkpoint's wait finishes immediately; nothing is missed.
 
-### Heading: `.facing(...)`
+### Heading: `.heading()` and `.facing()`
 
-```java
-.endpoint(Nodes.SHOOT_SPOT)                            // XY only: fastest, heading doesn't matter
-.endpoint(Nodes.SHOOT_SPOT).facing(Nodes.Hub.CENTER)   // also face a field location before finishing
-.endpoint(Nodes.SHOOT_SPOT).facing(90)                 // also face a heading (degrees)
-.checkpoint(Nodes.OVER_BUMP, 0.2).facing(45)           // hold 45° while driving to this checkpoint
-```
+Every node has a heading (`Node.at(x, y, degrees)`). While driving to a node, the robot **always turns toward that node's heading**. Whether an endpoint **waits** for the heading is up to the routine:
 
-- **Without `.facing`**, the robot keeps its current heading and doesn't turn. Turning costs time, and most of the time heading doesn't matter. The endpoint finishes as soon as the position is within tolerance. Node headings (`Node.at(x, y, degrees)`) are only used by `resetPose`.
-- **With `.facing` on an endpoint**, the robot turns on the way, and the endpoint finishes only when **both** position and heading are within tolerance (with a give-up). This is the fix for 2026's "reached XY, ignored heading" problem.
-- **With `.facing` on a checkpoint**, the robot turns to and holds that heading while driving to the checkpoint. The checkpoint still doesn't wait for the heading. Low priority.
-- `.facing` works with both drivers: they move the robot, and our heading controller turns it.
+With `NODE_A = Node.at(1.2, 1.5, 45)`:
+
+| You write | Robot turns toward | Endpoint waits for heading? |
+|---|---|---|
+| `.endpoint(NODE_A)` | 45° (the node's heading) | No: finishes on XY. Fastest |
+| `.endpoint(NODE_A).heading()` | 45° | **Yes** |
+| `.endpoint(NODE_A).heading(90)` | 90° (overrides the node) | **Yes** |
+| `.endpoint(NODE_B).facing(Nodes.Hub.CENTER)` | The angle that points at the hub **from NODE_B's position**, e.g. 60° instead of NODE_B's 90° | **Yes** |
+
+- **`.heading()`** is about the robot's own pose: wait for the node's heading, or `.heading(deg)` to override it.
+- **`.facing(location)`** points the robot at something. The angle is computed once, from the node's position (where the robot will be), not re-aimed every loop, so it's steady while driving.
+- **Waiting for heading is what fixes 2026's problem.** A plain `.endpoint(node)` behaves like 2026's `driveTo`: it turns on the way but finishes as soon as XY is reached, possibly mid-turn. When heading matters (shooting), add `.heading()` or `.facing()`. When it doesn't, leave them off and save the turning time.
+- **On checkpoints**, `.heading(deg)` and `.facing(...)` only change which way the robot turns. A checkpoint never waits for heading, because the robot doesn't stop there. Low priority; the node's own heading covers most cases (e.g. the bump node stored at 45°).
+- **Waypoints** use their node heading too.
+- **Mirroring and Red flipping are applied first,** so `.facing()` computes from the flipped/mirrored positions.
+- Works with both drivers: they move the robot, and our heading controller turns it.
 
 ### Actions
 
@@ -198,8 +205,8 @@ Both implement the same interface: drive a route (list of nodes, each a checkpoi
 
 Built from today's proven code:
 - checkpoints and waypoints: `moveThroughPose` logic (constant speed, pass radius);
-- endpoints: `driveToTarget` logic. XY only by default; with `.facing`, it finishes only when heading is also within tolerance. The existing stall give-up stays;
-- heading: the existing heading controller, only when `.facing` is used; otherwise the current heading is held.
+- endpoints: `driveToTarget` logic. Finishes on XY by default; with `.heading()` / `.facing()`, only when heading is also within tolerance. The existing stall give-up stays;
+- heading: the existing heading controller, always turning toward the current node's heading (or its `.heading` / `.facing` override).
 
 ### Policy driver
 
@@ -241,18 +248,18 @@ For Swerve-Policy-Playground, once this structure is final:
 
 None right now. Answered so far:
 - Default driver: classic; `Driver.POLICY` to switch.
-- Endpoint heading: XY only unless `.facing`.
+- Heading: always turn toward the node's heading; endpoints wait for it only with `.heading()` / `.facing()`.
 - Unknown side: never stop; run as written, `resetPose` + QuestNav correct the pose.
 - Keep-running steps: handled inside wrappers; no new step for students.
 - Checkpoint radius: per step, with a default.
-- `.facing` on checkpoints: yes, low priority.
+- Heading on checkpoints: from the node; `.heading(deg)` / `.facing()` override it, never wait.
 
 ---
 
 ## 9. Build order
 
-1. **Endpoint heading** in the classic logic: XY only by default; with `.facing`, finish on position AND heading. Small, and it fixes the 2026 problem on its own.
-2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with optional radius), `waypoint`, `endpoint`, `facing` (endpoints first, checkpoints later), `maxSpeed`; the background route runner with the classic driver; background start for keep-running wrappers; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
+1. **Endpoint heading** in the classic logic: finish on XY by default; with `.heading()` / `.facing()`, finish on position AND heading. Small, and it fixes the 2026 problem on its own.
+2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with optional radius), `waypoint`, `endpoint`, `heading` / `facing` (endpoints first, checkpoint overrides later), `maxSpeed`; the background route runner with the classic driver; background start for keep-running wrappers; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
 3. **Mirroring:** side detection at enable, `.side()`, `.noMirror()`, the season mirror line.
 4. **Build checks** (section 6) and tests for each step type, mirroring and Red flipping.
 5. **Port one 2026 auto of each kind** as the examples and the template. Update the Autonomous wiki page.
