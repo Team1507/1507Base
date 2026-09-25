@@ -104,6 +104,7 @@ import static org.team1507.robot.Constants.kSwerve.kTuning.*;
 //   new AutoSequence().maxSpeed(0.8)         the whole auto at 80% of top speed
 //   .slow().checkpoint(node)                 half of the auto's speed, this leg only
 //   .creep().checkpoint(node)                30% of the auto's speed, this leg only
+//   .speed(0.7).checkpoint(node)             70% of the auto's speed, this leg only
 //   .withSpeed(2.0).checkpoint(node)         2.0 m/s, this leg only
 //   A speed modifier must come right before a path step (or driveForwardMeters).
 //
@@ -367,6 +368,19 @@ public final class AutoSequence {
     /** This leg at 30% of the auto's speed: final alignment, tight spots. */
     public AutoSequence creep() {
         setPendingSpeed(Double.NaN, 0.3, "creep()");
+        return this;
+    }
+
+    /**
+     * This leg at {@code fraction} of the auto's speed (0 to 1), e.g.
+     * {@code .speed(0.7)}. slow() is speed(0.5); creep() is speed(0.3).
+     */
+    public AutoSequence speed(double fraction) {
+        if (!(fraction > 0.0 && fraction <= 1.0)) {
+            mistakes.add("speed(" + fraction + ") must be more than 0 and at most 1 "
+                + "(a fraction of the auto's speed; for m/s use withSpeed)");
+        }
+        setPendingSpeed(Double.NaN, fraction, "speed(" + fraction + ")");
         return this;
     }
 

@@ -167,6 +167,32 @@ class AutoSequenceTest {
     }
 
     @Test
+    void speedLimitsThatLegToAFractionOfTheAutosSpeed() {
+        Command auto = new AutoSequence()
+            .maxSpeed(0.8)
+            .resetPose(node(1, 1, 0))
+            .speed(0.25).endpoint(node(4, 1, 0))
+            .build();
+        scheduler.schedule(auto);
+        double fastest = 0;
+        for (int loop = 0; loop < MAX_LOOPS && scheduler.isScheduledOrRunning(auto); loop++) {
+            TestRobot.step();
+            var v = swerve.getFieldRelativeSpeeds();
+            fastest = Math.max(fastest, Math.hypot(v.vx, v.vy));
+        }
+        double limit = swerve.getMaxSpeed() * 0.8 * 0.25;
+        assertTrue(fastest <= limit + 0.05, "fastest " + fastest + " m/s, limit " + limit);
+        assertTrue(fastest >= limit - 0.1, "should reach the leg's speed; fastest " + fastest);
+        assertAt(4, 1, 0.06);
+    }
+
+    @Test
+    void aSpeedOutsideZeroToOneIsAMistake() {
+        assertMistake("must be more than 0 and at most 1", new AutoSequence()
+            .speed(1.5).endpoint(node(2, 1, 0)));
+    }
+
+    @Test
     void timeCutoffMovesOnFromANodeTheRobotCantReachInTime() {
         int loops = run(new AutoSequence()
             .resetPose(node(1, 1, 0))
