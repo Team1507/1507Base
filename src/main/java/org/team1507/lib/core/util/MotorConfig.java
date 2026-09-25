@@ -574,6 +574,13 @@ public record MotorConfig(
          * Motor turns per mechanism turn (e.g. 50.0 for a 50:1 gearbox). With
          * this set, positions and speeds are for the mechanism's output shaft,
          * so Motor1507 works in arm degrees / flywheel RPM, not motor turns.
+         *
+         * <p><b>The PID and feedforward gains change units too.</b> This sets
+         * CTRE's SensorToMechanismRatio, so the motor controller measures error
+         * in MECHANISM rotations. Gains tuned without a gear ratio (in motor
+         * rotations) must be multiplied by the ratio: kP, kI, kD, kV and kA × ratio;
+         * kS and kG stay the same (they are volts). Porting the 2026 hopper
+         * (ratio 1389) without this would have made it ~1,400x too weak.
          */
         public Builder gearRatio(double motorTurnsPerMechanismTurn) {
             this.sensorToMechanismRatio = motorTurnsPerMechanismTurn; return this;

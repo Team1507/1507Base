@@ -8,6 +8,8 @@
 
 package org.team1507.lib.core.auto;
 
+import java.util.function.BooleanSupplier;
+
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 
@@ -25,6 +27,8 @@ import org.wpilib.math.geometry.Rotation2d;
  * @param speed               top speed on the way to this node (m/s)
  * @param cutoffSeconds       auto time after which the node counts as reached anyway
  *                            ({@code Double.POSITIVE_INFINITY} for no cutoff)
+ * @param holdUntil           the robot stays on the node until this is true ({@code .holdUntil});
+ *                            null for no hold
  */
 public record RouteNode(
     Type type,
@@ -34,7 +38,8 @@ public record RouteNode(
     double headingToleranceDeg,
     boolean checksHeading,
     double speed,
-    double cutoffSeconds
+    double cutoffSeconds,
+    BooleanSupplier holdUntil
 ) {
 
     /** What the robot does at a node. */

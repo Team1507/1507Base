@@ -35,11 +35,9 @@ public final class ClassicRouteDriver implements RouteDriver {
 
     @Override
     public Translation2d translation(Pose2d pose, ChassisVelocities fieldSpeed,
-                                     RouteNode current, RouteNode next, boolean headingOk) {
-        // Endpoints slow down on the way in. A checkpoint also slows down when the
-        // robot is already there but still turning, so it settles on the node
-        // instead of overshooting while the heading catches up.
-        boolean slowDown = current.type() == RouteNode.Type.ENDPOINT || !headingOk;
+                                     RouteNode current, RouteNode next) {
+        // Endpoints slow down on the way in; checkpoints and waypoints don't.
+        boolean slowDown = current.type() == RouteNode.Type.ENDPOINT;
         return toward(pose, current, slowDown ? arriveKp : Double.POSITIVE_INFINITY);
     }
 

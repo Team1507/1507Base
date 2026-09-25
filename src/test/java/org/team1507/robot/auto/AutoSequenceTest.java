@@ -25,6 +25,7 @@ import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 
 import org.team1507.lib.core.util.Alliance;
+import org.team1507.robot.Constants.kAuto;
 import org.team1507.robot.Constants.kAuto.Accuracy;
 import org.team1507.robot.TestRobot;
 import org.team1507.robot.auto.nodes.Nodes;
@@ -40,6 +41,7 @@ import org.team1507.robot.subsystems.Swerve;
 //   - .facing() / .heading() make an endpoint wait for the heading
 //   - mirroring to the left side, and Red flipping
 //   - .by() time cutoffs
+//   - .holdUntil() keeps the robot on a checkpoint until a condition is true
 //   - keep-running (background) actions stop when the auto ends
 //   - canceling the auto stops the route
 //   - build() catches mistakes before the robot moves
@@ -173,6 +175,45 @@ class AutoSequenceTest {
             .build());
         assertAt(1.5, 1, 0.06);
         assertTrue(loops < 200, "should not drive all the way to x = 8 first; took " + loops + " loops");
+    }
+
+    @Test
+    void holdUntilKeepsTheRobotOnTheCheckpointUntilTheConditionIsTrue() {
+        boolean[] released = {false};
+        double[] distanceWhenDone = {-1};
+        // A background action that finishes after 60 loops, like an intake deploying.
+        Command deploy = Command.noRequirements(coroutine -> {
+            for (int i = 0; i < 60; i++) coroutine.yield();
+            released[0] = true;
+            coroutine.park();
+        }).named("fake deploy");
+        Command probe = Command.noRequirements(coroutine ->
+            distanceWhenDone[0] = swerve.getPose().getTranslation().getDistance(new Translation2d(1.6, 1))
+        ).named("probe");
+
+        int loops = run(new AutoSequence()
+            .resetPose(node(1, 1, 0))
+            .runInBackground("fakeDeploy", deploy)
+            .checkpoint(node(1.6, 1, 0)).holdUntil(() -> released[0])
+            .addCommand(probe)
+            .endpoint(node(3, 1, 0))
+            .build());
+
+        assertTrue(loops > 60, "should wait for the hold; took " + loops + " loops");
+        assertTrue(distanceWhenDone[0] >= 0 && distanceWhenDone[0] < 0.4,
+            "robot should be on the checkpoint when the hold releases: " + distanceWhenDone[0] + " m");
+        assertAt(3, 1, 0.06);
+    }
+
+    @Test
+    void aHoldThatNeverReleasesTimesOutAndTheAutoContinues() {
+        int loops = run(new AutoSequence()
+            .resetPose(node(1, 1, 0))
+            .checkpoint(node(1.6, 1, 0)).holdUntil(() -> false)
+            .endpoint(node(3, 1, 0))
+            .build());
+        assertAt(3, 1, 0.06);
+        assertTrue(loops > kAuto.HOLD_TIMEOUT_SECONDS * 50, "should wait the hold timeout first; took " + loops);
     }
 
     // ── Where the routine runs ───────────────────────────────────────────────

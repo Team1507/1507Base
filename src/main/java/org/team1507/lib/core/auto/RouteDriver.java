@@ -16,8 +16,9 @@ import org.wpilib.math.kinematics.ChassisVelocities;
  * Decides how the robot moves toward the route's current node: the part that
  * differs between the classic driver (straight lines) and the policy driver
  * (the trained network). Everything else (when a node counts as reached, time
- * cutoffs, giving up, turning, stopping at endpoints) is the route runner's
- * job, so both drivers behave the same way at every node.
+ * cutoffs, giving up, turning, settling onto a node to wait for heading or a
+ * hold, the final approach to an endpoint) is the route runner's job, so both
+ * drivers behave the same way at every node.
  */
 public interface RouteDriver {
 
@@ -28,9 +29,7 @@ public interface RouteDriver {
      * @param fieldSpeed the robot's measured field velocity
      * @param current    the node the robot is driving to
      * @param next       the node after it in this part of the route (the same node at the end)
-     * @param headingOk  false while the robot is inside the current node's distance
-     *                   tolerance but still turning to its heading
      */
     Translation2d translation(Pose2d pose, ChassisVelocities fieldSpeed,
-                              RouteNode current, RouteNode next, boolean headingOk);
+                              RouteNode current, RouteNode next);
 }

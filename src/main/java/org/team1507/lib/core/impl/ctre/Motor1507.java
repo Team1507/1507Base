@@ -8,8 +8,11 @@
 
 package org.team1507.lib.core.impl.ctre;
 
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.CANBus;
@@ -132,6 +135,9 @@ public final class Motor1507 implements TelemetryLoggable {
 
     private static final double INCHES_TO_METERS = 0.0254;
 
+    /** Every CAN bus a Motor1507 has been created on (RobotHealthLog logs the CANivores). */
+    private static final Set<CANBus> BUSES_IN_USE = new LinkedHashSet<>();
+
     /** Fallback "close enough" when the config doesn't set a tolerance. */
     private static final double DEFAULT_TOLERANCE_DEGREES = 2.0;
     private static final double DEFAULT_TOLERANCE_RPM = 50.0;
@@ -195,6 +201,7 @@ public final class Motor1507 implements TelemetryLoggable {
      * @param configs motor configuration; extra configs fill PID slots 1 and 2
      */
     public Motor1507(String name, Type type, int canId, CANBus canBus, MotorConfig... configs) {
+        BUSES_IN_USE.add(canBus);
         this.name = name;
         this.table = Telemetry.getTable(name);
         this.device = switch (type) {
@@ -535,6 +542,11 @@ public final class Motor1507 implements TelemetryLoggable {
      */
     public CommonTalon getTalon() {
         return talon;
+    }
+
+    /** Every CAN bus any Motor1507 has been created on, in creation order. */
+    public static Set<CANBus> busesInUse() {
+        return Collections.unmodifiableSet(BUSES_IN_USE);
     }
 
     /** The raw CTRE device as a ParentDevice (for CAN bus optimization). */

@@ -27,18 +27,23 @@ import org.wpilib.telemetry.TelemetryTable;
  *
  * <p>Each loop, for the node the robot is driving to:
  * <ol>
- *   <li><b>Reached?</b> Within the node's distance tolerance, and within its
- *       heading tolerance if it checks heading. Then it is marked done and the
- *       robot heads for the next node without stopping.</li>
+ *   <li><b>Reached?</b> Within the node's distance tolerance, within its
+ *       heading tolerance if it checks heading, and its {@code .holdUntil}
+ *       condition (if any) is true. Then it is marked done and the robot heads
+ *       for the next node without stopping.</li>
  *   <li><b>Time cutoff</b> ({@code .by(seconds)}): past it, the node counts as
  *       done anyway and the robot moves on.</li>
- *   <li><b>Waiting for heading</b> too long on top of the node: counts as done.</li>
- *   <li><b>Stuck</b> (not moving) or <b>too long</b> on one node: the route
- *       gives up, stops the robot, and marks the rest of this part done so the
- *       auto continues instead of waiting forever.</li>
+ *   <li><b>Waiting on the node</b> (in position, heading or hold not ready):
+ *       the robot settles onto the node. The heading is waived after
+ *       headingWaitSeconds; a hold gives up after holdTimeoutSeconds, and the
+ *       robot moves on either way.</li>
+ *   <li><b>Stuck</b> (not moving) or <b>too long</b> getting to one node: the
+ *       route gives up, stops the robot, and marks the rest of this part done so
+ *       the auto continues instead of waiting forever.</li>
  *   <li><b>Drive</b>: the driver (classic or policy) picks the direction and
- *       speed; near an endpoint the classic slow-down takes over for accuracy.
- *       The robot turns toward the node's heading the whole time.</li>
+ *       speed. Near an endpoint, and while settling onto a node, the classic
+ *       slow-down takes over. The robot turns toward the node's heading the
+ *       whole time.</li>
  * </ol>
  * At the end of the part the robot stops.
  *
@@ -76,6 +81,8 @@ public final class RouteRunner {
             int index = first;
             double nodeStart = Timer.getTimestamp();
             double headingWaitStart = Double.NaN;
+            double holdStart = Double.NaN;
+            boolean headingWaived = false;
             Translation2d progressPoint = drivetrain.getPose().getTranslation();
             double progressTime = nodeStart;
 
@@ -87,24 +94,35 @@ public final class RouteRunner {
                 double distance = pose.getTranslation().getDistance(node.target().getTranslation());
                 double headingErrorDeg = Math.abs(Math.toDegrees(MathUtil.angleModulus(
                     node.heading().minus(pose.getRotation()).getRadians())));
-                boolean headingOk = !node.checksHeading() || headingErrorDeg <= node.headingToleranceDeg();
                 boolean inPosition = distance <= node.distanceTolerance();
+                boolean headingOk = headingWaived || !node.checksHeading()
+                    || headingErrorDeg <= node.headingToleranceDeg();
+                boolean holdOk = node.holdUntil() == null || node.holdUntil().getAsBoolean();
 
                 // 1-3. Is this node done?
                 String doneBecause = null;
-                if (inPosition && headingOk) {
+                if (inPosition && headingOk && holdOk) {
                     doneBecause = "REACHED";
                 } else if (autoTime.getAsDouble() >= node.cutoffSeconds()) {
                     doneBecause = "CUT OFF (time)";
-                } else if (inPosition) {
-                    // In position, still turning.
+                } else if (inPosition && !headingOk) {
+                    // On the node, still turning.
                     if (Double.isNaN(headingWaitStart)) {
                         headingWaitStart = now;
                     } else if (now - headingWaitStart > config.headingWaitSeconds()) {
-                        doneBecause = "REACHED (heading wait timed out)";
+                        headingWaived = true;   // stop waiting for heading; a hold still applies
+                        Telemetry.log(EVENTS, "HEADING WAIVED (timed out) node " + index);
+                    }
+                } else if (inPosition) {
+                    // On the node, waiting for .holdUntil.
+                    if (Double.isNaN(holdStart)) {
+                        holdStart = now;
+                    } else if (now - holdStart > config.holdTimeoutSeconds()) {
+                        doneBecause = "REACHED (hold timed out)";
                     }
                 } else {
                     headingWaitStart = Double.NaN;
+                    holdStart = Double.NaN;
                 }
 
                 if (doneBecause != null) {
@@ -113,31 +131,37 @@ public final class RouteRunner {
                     index++;
                     nodeStart = now;
                     headingWaitStart = Double.NaN;
+                    holdStart = Double.NaN;
+                    headingWaived = false;
                     progressPoint = pose.getTranslation();
                     progressTime = now;
                     continue;   // check the next node in the same loop
                 }
 
-                // 4. Stuck, or taking too long?
+                // 4. Stuck, or taking too long to get there? (Waiting ON the node
+                // has its own time limits above.)
                 if (pose.getTranslation().getDistance(progressPoint) > config.stallDistance()) {
                     progressPoint = pose.getTranslation();
                     progressTime = now;
                 }
                 boolean stuck = !inPosition && now - progressTime > config.stallSeconds();
-                boolean tooLong = now - nodeStart > config.maxSecondsPerNode();
+                boolean tooLong = !inPosition && now - nodeStart > config.maxSecondsPerNode();
                 if (stuck || tooLong) {
                     Telemetry.log(EVENTS, (stuck ? "GAVE UP (stuck)" : "GAVE UP (too long)")
                         + " at node " + index + "; skipping to node " + (last + 1));
                     break;
                 }
 
-                // 5. Drive.
+                // 5. Drive. Settle onto the node (classic slow-down) near an endpoint,
+                // or while waiting on a node for heading or a hold; otherwise the
+                // driver decides.
+                boolean settling = inPosition;   // in position but not done: waiting
                 RouteNode next = nodes.get(Math.min(index + 1, last));
                 ChassisVelocities fieldSpeed = drivetrain.getFieldRelativeSpeeds();
                 Translation2d velocity =
-                    node.type() == RouteNode.Type.ENDPOINT && distance < config.endpointHandoff()
+                    settling || (node.type() == RouteNode.Type.ENDPOINT && distance < config.endpointHandoff())
                         ? ClassicRouteDriver.toward(pose, node, config.arriveKp())
-                        : driver.translation(pose, fieldSpeed, node, next, headingOk);
+                        : driver.translation(pose, fieldSpeed, node, next);
 
                 double headingError = MathUtil.angleModulus(node.heading().minus(pose.getRotation()).getRadians());
                 double omega = Math.clamp(headingError * config.headingKp(),
@@ -146,6 +170,7 @@ public final class RouteRunner {
                 drivetrain.driveFieldRelative(new ChassisVelocities(velocity.getX(), velocity.getY(), omega));
                 TABLE.log("Target", node.target());
                 TABLE.log("Node", index);
+                TABLE.log("Holding", inPosition && !holdOk);
                 coroutine.yield();
             }
 

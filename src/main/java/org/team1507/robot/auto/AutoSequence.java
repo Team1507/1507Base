@@ -88,6 +88,14 @@ import static org.team1507.robot.Constants.kSwerve.kTuning.*;
 //   On checkpoints, .heading(deg) / .facing(...) only change which way the robot
 //   turns; the checkpoint's accuracy decides how close the heading must be.
 //
+// HOLD (right after a path step)
+//   .checkpoint(node).holdUntil(AutoBuilder.robot.intakeArm::isDeployed)
+//                                            the robot stays on the node until the
+//                                            condition is true, then drives on
+//                                            without a full stop. Gives up after
+//                                            kAuto.HOLD_TIMEOUT_SECONDS. (2026 did
+//                                            this with parallel(moveThrough, deploy).)
+//
 // TIME CUTOFF (right after a path step)
 //   .checkpoint(node).by(2.7)                if not reached by 2.7 s into auto,
 //                                            count it as reached and move on
@@ -156,6 +164,7 @@ public final class AutoSequence {
         double speedMps = Double.NaN;             // .withSpeed(...)
         double speedFraction = Double.NaN;        // .slow() / .creep()
         double cutoffSeconds = Double.POSITIVE_INFINITY;
+        BooleanSupplier holdUntil = null;         // .holdUntil(condition)
     }
 
     /** Where the routine runs: mirrored to the left side, and/or flipped for Red. */
@@ -320,6 +329,17 @@ public final class AutoSequence {
     /** Faces a field location given as a pose (its heading is ignored). */
     public AutoSequence facing(Pose2d location) {
         return facing(location.getTranslation());
+    }
+
+    /**
+     * The robot stays on this node until {@code condition} is true, then drives
+     * on (from a checkpoint, without a full stop). For "don't leave until the
+     * intake is down": {@code .checkpoint(RR).holdUntil(AutoBuilder.robot.intakeArm::isDeployed)}.
+     * Gives up after kAuto.HOLD_TIMEOUT_SECONDS so a jammed mechanism can't stop the auto.
+     */
+    public AutoSequence holdUntil(BooleanSupplier condition) {
+        requireLastNode("holdUntil(...)").holdUntil = condition;
+        return this;
     }
 
     /** If this node isn't reached by {@code autoSeconds} into auto, count it as reached and move on. */
@@ -571,7 +591,8 @@ public final class AutoSequence {
 
         RouteProgress progress = new RouteProgress();
         RouteConfig config = new RouteConfig(HEADING_KP, ARRIVE_KP, kAuto.ENDPOINT_HANDOFF,
-            STALL_THRESHOLD, STALL_TIMEOUT, kAuto.MAX_SECONDS_PER_NODE, kAuto.HEADING_WAIT_SECONDS);
+            STALL_THRESHOLD, STALL_TIMEOUT, kAuto.MAX_SECONDS_PER_NODE, kAuto.HEADING_WAIT_SECONDS,
+            kAuto.HOLD_TIMEOUT_SECONDS);
         Command[] parts = new Command[route.size()];
         for (int i = 0; i < route.size(); i++) {
             if (partFirst[i] == i) {
@@ -736,7 +757,8 @@ public final class AutoSequence {
                 heading = target.getRotation();
             }
             placed.add(new RouteNode(spec.type, target, heading, spec.meters, spec.degrees,
-                spec.checksHeading, legSpeed(spec.speedMps, spec.speedFraction), spec.cutoffSeconds));
+                spec.checksHeading, legSpeed(spec.speedMps, spec.speedFraction), spec.cutoffSeconds,
+                spec.holdUntil));
         }
         return placed;
     }

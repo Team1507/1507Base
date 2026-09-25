@@ -178,6 +178,13 @@ public class Constants {
         /** How long the robot may sit on a node waiting for its heading before moving on (seconds). */
         public static final double HEADING_WAIT_SECONDS = 1.0;
 
+        /**
+         * How long the robot may sit on a node waiting for a .holdUntil(...)
+         * condition before moving on anyway (seconds), so a jammed mechanism
+         * can't stop the whole auto. Use .by(...) on the node for a tighter limit.
+         */
+        public static final double HOLD_TIMEOUT_SECONDS = 3.0;
+
         /** Policy routes: nodes must be at most this far apart (meters); the policy was trained on 1–6 m. */
         public static final double POLICY_MAX_NODE_SPACING = 5.0;
     }

@@ -20,7 +20,9 @@ package org.team1507.lib.core.auto;
  * @param stallSeconds      ... every this many seconds, or the route gives up (robot stuck)
  * @param maxSecondsPerNode give up if one node takes longer than this (s); catches circling
  * @param headingWaitSeconds how long the robot may sit on a node waiting for its heading (s)
- *                          before the node counts as reached anyway
+ *                          before the heading is waived
+ * @param holdTimeoutSeconds how long the robot may sit on a node waiting for its
+ *                          {@code .holdUntil} condition (s) before moving on anyway
  */
 public record RouteConfig(
     double headingKp,
@@ -29,5 +31,6 @@ public record RouteConfig(
     double stallDistance,
     double stallSeconds,
     double maxSecondsPerNode,
-    double headingWaitSeconds
+    double headingWaitSeconds,
+    double holdTimeoutSeconds
 ) {}
