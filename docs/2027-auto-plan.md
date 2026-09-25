@@ -45,7 +45,7 @@ Lessons:
 | Speed modifiers with the policy | Kelly will add speed to the policy's training once this structure is final |
 | Heading in the policy | Kelly will add a heading observation to training later. Until then our code turns the robot while the policy drives |
 | Heading | The robot always turns toward the **node's heading** while driving. An endpoint finishes on **XY only** unless `.heading()` or `.facing(...)` is added, which also make it wait for the heading |
-| Checkpoint pass radius | Per step, as in 2026 (`.checkpoint(node, 0.2)`), with a default when left out |
+| Checkpoint accuracy | Named presets (`Accuracy.PRECISE / TIGHT / NORMAL / LOOSE`), each setting distance **and** heading tolerance, defined once in Constants so tuning a preset updates every auto. `NORMAL` when left out; exact numbers for rare cases |
 | Heading on checkpoints | Comes from the node (store the 2026 bump node at 45° and the robot crosses at 45°). `.heading(deg)` / `.facing(...)` only override it; a checkpoint never waits for heading |
 | Unknown side / position at enable | **Never stop the auto.** `resetPose` gets the pose close; QuestNav corrects it when it's tracking. The only give-up stays the existing stall detection |
 
@@ -81,10 +81,33 @@ With `NODE_A = Node.at(1.2, 1.5, 45)`:
 - **`.heading()`** is about the robot's own pose: wait for the node's heading, or `.heading(deg)` to override it.
 - **`.facing(location)`** points the robot at something. The angle is computed once, from the node's position (where the robot will be), not re-aimed every loop, so it's steady while driving.
 - **Waiting for heading is what fixes 2026's problem.** A plain `.endpoint(node)` behaves like 2026's `driveTo`: it turns on the way but finishes as soon as XY is reached, possibly mid-turn. When heading matters (shooting), add `.heading()` or `.facing()`. When it doesn't, leave them off and save the turning time.
-- **On checkpoints**, `.heading(deg)` and `.facing(...)` only change which way the robot turns. A checkpoint never waits for heading, because the robot doesn't stop there. Low priority; the node's own heading covers most cases (e.g. the bump node stored at 45°).
+- **On checkpoints**, heading counts, but loosely: see Checkpoint accuracy below. `.heading(deg)` and `.facing(...)` change which heading that is. Low priority; the node's own heading covers most cases (e.g. the bump node stored at 45°).
 - **Waypoints** use their node heading too.
 - **Mirroring and Red flipping are applied first,** so `.facing()` computes from the flipped/mirrored positions.
 - Works with both drivers: they move the robot, and our heading controller turns it.
+
+### Checkpoint accuracy
+
+How close a checkpoint must be before it counts as reached, as a named preset. Each preset sets **distance and heading together**, so students never reason about degrees for a checkpoint. The values live in one place (Constants): change a preset once and every auto that uses it updates, the same idea as the `MotorConfig` presets. Typing `Accuracy.` in VS Code lists them, so the names don't have to be memorized.
+
+| Preset | Distance | Heading | Use |
+|---|---|---|---|
+| `Accuracy.PRECISE` | 0.1 m | 5° | Lining up before a bump or a narrow gap |
+| `Accuracy.TIGHT` | 0.2 m | 15° | Most 2026 checkpoints |
+| `Accuracy.NORMAL` | 0.4 m | 30° | The default, when no preset is given |
+| `Accuracy.LOOSE` | 0.7 m | 45° | Roughly there; fastest |
+
+```java
+.checkpoint(Nodes.SUBWAY_ENTRY)                          // NORMAL
+.checkpoint(Nodes.OVER_BUMP, Accuracy.PRECISE)           // square up before the bump
+.checkpoint(Nodes.MIDFIELD, 0.3, 20)                     // exact: 0.3 m and 20°, for rare cases
+```
+
+A checkpoint is reached when the robot is within **both** its distance and its heading tolerance. If the heading is behind (the bump needs 45° but the robot is at 70°), the robot slows at the checkpoint until the heading catches up, then continues. With `LOOSE` that almost never happens; with `PRECISE` it guarantees the angle.
+
+Endpoints keep their own tighter tolerances (5 cm, and 3° when `.heading()` / `.facing()` is used), also in Constants.
+
+The starting values come from the pass radii 2026 used (0.1–0.7 m) and will be tuned on the robot.
 
 ### Actions
 
@@ -117,13 +140,13 @@ public final class SweepAuto extends AutoOpMode {
         return new AutoSequence()                  // classic driver (the default)
             .maxSpeed(0.8)
             .resetPose(Nodes.Start.RIGHT)
-            .checkpoint(Nodes.OVER_BUMP, 0.2)
+            .checkpoint(Nodes.OVER_BUMP, Accuracy.TIGHT)
             .intakeDeploy()                        // deploys while driving on
-            .slow().checkpoint(Nodes.SUBWAY_ENTRY, 0.1)
-            .slow().checkpoint(Nodes.SUBWAY_EXIT, 0.2)
+            .slow().checkpoint(Nodes.SUBWAY_ENTRY, Accuracy.PRECISE)
+            .slow().checkpoint(Nodes.SUBWAY_EXIT, Accuracy.TIGHT)
             .intakeRetract()                       // retracts while driving on
-            .checkpoint(Nodes.BEFORE_BUMP, 0.2)
-            .checkpoint(Nodes.OVER_BUMP, 0.2)
+            .checkpoint(Nodes.BEFORE_BUMP, Accuracy.TIGHT)
+            .checkpoint(Nodes.OVER_BUMP, Accuracy.TIGHT)
             .endpoint(Nodes.Start.RIGHT).facing(Nodes.Hub.CENTER)
             .shootUntil(19.99)
             .build();
@@ -235,6 +258,7 @@ For Swerve-Policy-Playground, once this structure is final:
 | Training change | Why |
 |---|---|
 | Separate pass radius for endpoints (tight) and checkpoints (0.65 m) | Endpoints must be accurate |
+| Checkpoint accuracy (distance and heading tolerance) as an input | A `PRECISE` 0.1 m checkpoint asks for more than the 0.65 m it was trained on; without this it may overshoot and come back |
 | Speed limit as an input | So `maxSpeed` / `slow()` work with the policy |
 | Heading input | Later; our heading controller covers it until then |
 | Robot's real top speed and acceleration limits (15 / 10 m/s², see `SwerveConfig`) | The current simulator lets the robot accelerate almost instantly. On the real robot, with acceleration limits, the policy could overshoot |
@@ -251,7 +275,7 @@ None right now. Answered so far:
 - Heading: always turn toward the node's heading; endpoints wait for it only with `.heading()` / `.facing()`.
 - Unknown side: never stop; run as written, `resetPose` + QuestNav correct the pose.
 - Keep-running steps: handled inside wrappers; no new step for students.
-- Checkpoint radius: per step, with a default.
+- Checkpoint accuracy: named presets (`PRECISE / TIGHT / NORMAL / LOOSE`) in Constants, `NORMAL` by default, exact numbers for rare cases.
 - Heading on checkpoints: from the node; `.heading(deg)` / `.facing()` override it, never wait.
 
 ---
@@ -259,7 +283,7 @@ None right now. Answered so far:
 ## 9. Build order
 
 1. **Endpoint heading** in the classic logic: finish on XY by default; with `.heading()` / `.facing()`, finish on position AND heading. Small, and it fixes the 2026 problem on its own.
-2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with optional radius), `waypoint`, `endpoint`, `heading` / `facing` (endpoints first, checkpoint overrides later), `maxSpeed`; the background route runner with the classic driver; background start for keep-running wrappers; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
+2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with `Accuracy` presets in Constants), `waypoint`, `endpoint`, `heading` / `facing` (endpoints first, checkpoint overrides later), `maxSpeed`; the background route runner with the classic driver; background start for keep-running wrappers; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
 3. **Mirroring:** side detection at enable, `.side()`, `.noMirror()`, the season mirror line.
 4. **Build checks** (section 6) and tests for each step type, mirroring and Red flipping.
 5. **Port one 2026 auto of each kind** as the examples and the template. Update the Autonomous wiki page.
