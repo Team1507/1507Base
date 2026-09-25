@@ -37,13 +37,17 @@ Lessons:
 
 | Decision | Choice |
 |---|---|
-| Driver chosen how | In the routine: `new AutoSequence(Driver.POLICY)` or `new AutoSequence(Driver.CLASSIC)` |
+| Driver chosen how | `new AutoSequence()` is the classic driver (the default). `new AutoSequence(Driver.POLICY)` switches to the policy |
 | Policy and classic autos | **Separate routines** ("Sweep" and "Sweep – Policy"). They use different nodes anyway: classic needs extra nodes to steer around obstacles, the policy avoids them itself |
 | Backup plan | Pick the classic version of the auto on the Driver Station |
 | `driveTo` / `moveThrough` in autos | Removed; replaced by `endpoint` / `checkpoint` |
 | Mirroring | Yes: normally 1–3 routines, mirrored to the side the robot starts on. Side-specific routines are still allowed |
 | Speed modifiers with the policy | Kelly will add speed to the policy's training once this structure is final |
 | Heading in the policy | Kelly will add a heading observation to training later. Until then our code turns the robot while the policy drives |
+| Endpoint heading | **XY only by default** (turning costs time). `.facing(...)` adds a heading requirement |
+| Checkpoint pass radius | Per step, as in 2026 (`.checkpoint(node, 0.2)`), with a default when left out |
+| `.facing()` on checkpoints | Supported (e.g. crossing the 2026 bump at 45° so the robot doesn't get stuck), but low priority |
+| Unknown side / position at enable | **Never stop the auto.** `resetPose` gets the pose close; QuestNav corrects it when it's tracking. The only give-up stays the existing stall detection |
 
 ---
 
@@ -55,35 +59,42 @@ Lessons:
 |---|---|---|---|
 | `.checkpoint(node)` | Drive **through** this node | Waits until the robot reaches it | **Keeps moving** |
 | `.waypoint(node)` | A shaping point: keeps the route where you want it | No; it's not a step, only part of the route | Keeps moving |
-| `.endpoint(node)` | Drive to this node and **stop** (position AND heading) | Waits until the robot has stopped there | Stops |
+| `.endpoint(node)` | Drive to this node and **stop** (position only, unless `.facing(...)` is added) | Waits until the robot has stopped there | Stops |
 
 **The one rule to teach:** after a checkpoint, the robot keeps driving toward the next endpoint while the steps after the checkpoint run. To stop and then do something, use an endpoint.
 
 How it works: when the sequence reaches a path step, the robot starts driving the whole route up to the next endpoint **in the background**. Path steps then only wait for "reached". Every other step (`intakeDeploy()`, `shoot()`) runs while the robot drives. If an action takes long enough that the robot passes the next checkpoint first, that checkpoint's wait finishes immediately; nothing is missed.
 
-### Endpoint options
+### Heading: `.facing(...)`
 
 ```java
-.endpoint(Nodes.SHOOT_SPOT).facing(Nodes.Hub.CENTER)   // turn to face a field location
-.endpoint(Nodes.SHOOT_SPOT)                            // use the node's own heading
+.endpoint(Nodes.SHOOT_SPOT)                            // XY only: fastest, heading doesn't matter
+.endpoint(Nodes.SHOOT_SPOT).facing(Nodes.Hub.CENTER)   // also face a field location before finishing
+.endpoint(Nodes.SHOOT_SPOT).facing(90)                 // also face a heading (degrees)
+.checkpoint(Nodes.OVER_BUMP, 0.2).facing(45)           // hold 45° while driving to this checkpoint
 ```
 
-`facing` works with both drivers: the drivers move the robot, and our heading controller turns it on the way.
+- **Without `.facing`**, the robot keeps its current heading and doesn't turn. Turning costs time, and most of the time heading doesn't matter. The endpoint finishes as soon as the position is within tolerance. Node headings (`Node.at(x, y, degrees)`) are only used by `resetPose`.
+- **With `.facing` on an endpoint**, the robot turns on the way, and the endpoint finishes only when **both** position and heading are within tolerance (with a give-up). This is the fix for 2026's "reached XY, ignored heading" problem.
+- **With `.facing` on a checkpoint**, the robot turns to and holds that heading while driving to the checkpoint. The checkpoint still doesn't wait for the heading. Low priority.
+- `.facing` works with both drivers: they move the robot, and our heading controller turns it.
 
 ### Actions
 
 | Step | Meaning |
 |---|---|
 | `.intakeDeploy()`, `.shootUntil(13.5)` | Subsystem steps (a one-line wrapper each, as today). The sequence waits for them to finish; the robot keeps driving if a route is active |
-| `.runInBackground(cmd)` | Start something that never ends on its own (rollers) and move on immediately. It stops when a later step uses that subsystem, or when the auto ends |
+| `.intakeRollersOn()` and similar | For things that must **keep running** (rollers). The wrapper starts the command in the background and the list moves on immediately; a later step for that subsystem (`.intakeRollersOff()`) or the end of the auto stops it |
 | `.waitSeconds(t)`, `.waitUntilTime(t)`, `.waitUntil(cond)` | As today |
+
+**Why keep-running steps need special handling:** in 2026, `intakeHigh()` set the roller speed and finished at once; the roller subsystem remembered its speed. In 1507Base, when a command finishes, the subsystem's default command (`idle()`) takes over and stops the motor. So "rollers on" must be a command that keeps running, and in a step list a step that never finishes blocks everything after it. The wrapper handles this with a background start (`runInBackground(cmd)`, used only inside wrappers). **Students writing routines never see it**: to them it's a normal step.
 
 `parallel` / `race` / `deadline` stay available for rare advanced cases, but no 2026 auto would need them.
 
 ### Speed
 
 ```java
-new AutoSequence(Driver.CLASSIC).maxSpeed(0.8)   // whole auto (was the chooser's MAX_SPEED * 0.8)
+new AutoSequence().maxSpeed(0.8)                 // whole auto (was the chooser's MAX_SPEED * 0.8)
 .slow().checkpoint(Nodes.SUBWAY_ENTRY)           // the leg into this node only
 ```
 
@@ -96,16 +107,16 @@ new AutoSequence(Driver.CLASSIC).maxSpeed(0.8)   // whole auto (was the chooser'
 public final class SweepAuto extends AutoOpMode {
     @Override
     protected Command build() {
-        return new AutoSequence(Driver.CLASSIC)
+        return new AutoSequence()                  // classic driver (the default)
             .maxSpeed(0.8)
-            .resetPose(Nodes.Start.RIGHT)          // side is chosen from this (see Mirroring)
-            .checkpoint(Nodes.OVER_BUMP)
+            .resetPose(Nodes.Start.RIGHT)
+            .checkpoint(Nodes.OVER_BUMP, 0.2)
             .intakeDeploy()                        // deploys while driving on
-            .slow().checkpoint(Nodes.SUBWAY_ENTRY)
-            .slow().checkpoint(Nodes.SUBWAY_EXIT)
+            .slow().checkpoint(Nodes.SUBWAY_ENTRY, 0.1)
+            .slow().checkpoint(Nodes.SUBWAY_EXIT, 0.2)
             .intakeRetract()                       // retracts while driving on
-            .checkpoint(Nodes.BEFORE_BUMP)
-            .checkpoint(Nodes.OVER_BUMP)
+            .checkpoint(Nodes.BEFORE_BUMP, 0.2)
+            .checkpoint(Nodes.OVER_BUMP, 0.2)
             .endpoint(Nodes.Start.RIGHT).facing(Nodes.Hub.CENTER)
             .shootUntil(19.99)
             .build();
@@ -171,7 +182,7 @@ Routines are written for **one side** (the right side, from the Blue driver stat
 | No QuestNav | The robot's pose from the dashboard seed buttons (Seed Left / Center / Right, as in 2026), or the routine's `resetPose` node |
 | Routine says `.side(Side.LEFT)` or `.noMirror()` | Exactly what it says. For side-specific routines |
 
-**Safety:** if the robot's position can't be trusted at enable (QuestNav not tracking and no seed pressed), the auto must not guess a side. It should raise a dashboard fault. Whether it then does nothing or runs the unmirrored route is an open question (section 8).
+**The auto never stops itself** over position or side. The side is decided once, at enable, from the best position available (QuestNav, else the seed buttons). If nothing tells it the side, it runs the route as written. `resetPose` then sets the pose close to the start node, and QuestNav corrects it once it's tracking. The only give-up remains the existing stall detection (robot pushing against something).
 
 **Advanced goal (later, policy only):** "run to the center, come back and shoot" from **anywhere** on the field. QuestNav gives the starting position, and the policy drives from there to the first node without hitting anything. The classic driver can't do this safely, because a straight line from an arbitrary spot may cross the hub.
 
@@ -187,8 +198,8 @@ Both implement the same interface: drive a route (list of nodes, each a checkpoi
 
 Built from today's proven code:
 - checkpoints and waypoints: `moveThroughPose` logic (constant speed, pass radius);
-- endpoints: `driveToTarget` logic, **fixed to finish only when heading is also within tolerance**, with the existing stall give-up plus an overall time limit;
-- heading: the existing heading controller, toward the node's heading or `facing` target.
+- endpoints: `driveToTarget` logic. XY only by default; with `.facing`, it finishes only when heading is also within tolerance. The existing stall give-up stays;
+- heading: the existing heading controller, only when `.facing` is used; otherwise the current heading is held.
 
 ### Policy driver
 
@@ -228,17 +239,20 @@ For Swerve-Policy-Playground, once this structure is final:
 
 ## 8. Open questions
 
-1. **Unknown side at enable** (no QuestNav, no seed): do nothing, or run the unmirrored route?
-2. **Name of the background step:** `.runInBackground(cmd)`, or something shorter?
-3. **Checkpoint pass radius for classic:** 2026 used 0.1–0.7 m, chosen per step. Keep a per-step option (`.checkpoint(node, 0.5)`), or one default?
-4. **`.facing()` on checkpoints too** (aim while passing through), or endpoints only?
+None right now. Answered so far:
+- Default driver: classic; `Driver.POLICY` to switch.
+- Endpoint heading: XY only unless `.facing`.
+- Unknown side: never stop; run as written, `resetPose` + QuestNav correct the pose.
+- Keep-running steps: handled inside wrappers; no new step for students.
+- Checkpoint radius: per step, with a default.
+- `.facing` on checkpoints: yes, low priority.
 
 ---
 
 ## 9. Build order
 
-1. **Fix endpoint heading** in the classic logic (finish on position AND heading). Small, and it fixes the 2026 problem on its own.
-2. **Route steps in `AutoSequence`:** `Driver`, `checkpoint`, `waypoint`, `endpoint`, `facing`, `maxSpeed`, `runInBackground`; the background route runner with the classic driver; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
+1. **Endpoint heading** in the classic logic: XY only by default; with `.facing`, finish on position AND heading. Small, and it fixes the 2026 problem on its own.
+2. **Route steps in `AutoSequence`:** `Driver` (classic default), `checkpoint` (with optional radius), `waypoint`, `endpoint`, `facing` (endpoints first, checkpoints later), `maxSpeed`; the background route runner with the classic driver; background start for keep-running wrappers; give-up handling; logging (`Auto/Route/...`). Remove `driveTo`/`moveThrough` steps.
 3. **Mirroring:** side detection at enable, `.side()`, `.noMirror()`, the season mirror line.
 4. **Build checks** (section 6) and tests for each step type, mirroring and Red flipping.
 5. **Port one 2026 auto of each kind** as the examples and the template. Update the Autonomous wiki page.
